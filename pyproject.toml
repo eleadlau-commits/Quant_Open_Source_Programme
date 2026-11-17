@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "honestbt"
+version = "0.1.0"
+description = "Honest, pluggable backtests and pass/fail evaluation for retail strategy families"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["numpy>=1.26", "pandas>=2.1", "pyarrow>=14"]
+
+[project.optional-dependencies]
+web = ["fastapi>=0.110", "uvicorn>=0.27"]
+dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110"]
+
+[tool.setuptools.packages.find]
+include = ["honestbt*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
