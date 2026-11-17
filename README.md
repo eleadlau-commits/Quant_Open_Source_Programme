@@ -115,3 +115,12 @@ files are git-ignored. The downloader has not yet been run against a live key.
 * Trading calendar is inferred from the data, not an exchange calendar.
 * Fills use minute-bar opens/closes; no order-book or auction modelling.
 * Timestamps are naive US/Eastern.
+
+## Browser-only version (GitHub Pages)
+
+`python scripts/build_static_site.py --out _site` builds a static copy of the UI
+that runs `honestbt` inside the browser with [Pyodide](https://pyodide.org)
+(no server). Try it with `python -m http.server -d _site 8000`. The `pages`
+workflow publishes it on every push to `main` once GitHub Pages is enabled with
+source "GitHub Actions" (repo Settings → Pages). Pages sites are public, so
+only use synthetic or freely redistributable data there.

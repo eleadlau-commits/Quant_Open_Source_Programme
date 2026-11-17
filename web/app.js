@@ -5,6 +5,7 @@ const num = (x, d = 2) => (x == null || isNaN(x) ? "–" : Number(x).toFixed(d))
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 async function api(path, body) {
+  if (window.HONESTBT_STATIC) return window.staticApi(path, body, (m) => ($("summary").textContent = m));
   const res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
   if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
   return res.json();
