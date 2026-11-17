@@ -1,0 +1,42 @@
+{
+  "name": "Monday top-5 pre-market gappers, hold to proper reversal",
+  "data": {"plugin": "synthetic", "params": {"n_symbols": 40, "n_days": 130, "seed": 7, "gap_momentum": 0.0}},
+  "features": {
+    "gap":    {"plugin": "premarket_gap"},
+    "price":  {"plugin": "last_close"},
+    "adv20":  {"plugin": "avg_dollar_volume", "params": {"window": 20}},
+    "atr14":  {"plugin": "atr", "params": {"window": 14}},
+    "vol20":  {"plugin": "realized_vol", "params": {"window": 20}}
+  },
+  "mappings": {
+    "smooth_from_vol": {"plugin": "linear", "input": "vol20",
+                        "params": {"slope": 20, "intercept": 2, "lo": 3, "hi": 30}}
+  },
+  "strategy": {
+    "plugin": "weekly_topn",
+    "params": {
+      "decision_time": "09:30",
+      "top_n": 5,
+      "rank_by": "gap",
+      "min_price": 5,
+      "min_dollar_volume": 5000000,
+      "hold_until": "week_close",
+      "exit": {"plugin": "atr_trailing",
+               "params": {"k": 1.0, "smooth": {"$map": "smooth_from_vol"}, "atr_feature": "atr14"}}
+    }
+  },
+  "costs": {"half_spread_bps": 5, "slippage_bps": 3, "open_multiplier": 3},
+  "sweep": {
+    "strategy.params.exit.params.k": [0.5, 1.0, 1.5, 2.0],
+    "mappings.smooth_from_vol.params.slope": [0, 20, 40]
+  },
+  "evaluators": [
+    {"plugin": "out_of_sample", "params": {"split": 0.6}},
+    {"plugin": "bootstrap"},
+    {"plugin": "deflated_sharpe"},
+    {"plugin": "cost_stress", "params": {"multiplier": 2}},
+    {"plugin": "random_baseline", "params": {"n": 40}},
+    {"plugin": "benchmark"},
+    {"plugin": "parameter_stability"}
+  ]
+}

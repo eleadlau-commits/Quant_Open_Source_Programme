@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Strategy Lab</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Strategy Lab <span class="sub">honest backtests for retail strategy families</span></h1>
+    <div class="controls">
+      <select id="configSelect" aria-label="Preset"></select>
+      <button id="runBtn">Run</button>
+    </div>
+  </header>
+  <main>
+    <section class="panel" id="patchPanel">
+      <h2>Patch bay</h2>
+      <p class="hint">Features feed mappings (patch cables), which feed strategy parameters. Edit the JSON below; the graph redraws.</p>
+      <svg id="graph" role="img" aria-label="Patch bay graph"></svg>
+      <textarea id="configEditor" spellcheck="false"></textarea>
+      <div id="problems"></div>
+      <details>
+        <summary>Plugin catalogue</summary>
+        <div id="catalogue"></div>
+      </details>
+    </section>
+    <section class="panel" id="resultPanel">
+      <h2>Verdict</h2>
+      <div id="summary" class="summary muted">Run a configuration to see results.</div>
+      <div id="verdicts"></div>
+      <h2>Equity (selected variant vs buy-the-universe)</h2>
+      <canvas id="equity" height="260"></canvas>
+      <h2>Sweep</h2>
+      <div id="sweep"></div>
+      <h2>Trades</h2>
+      <div id="trades" class="tablewrap"></div>
+    </section>
+  </main>
+  <footer>Passing these tests means a result survived them. It is not evidence a strategy will make money. Not financial advice.</footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>
