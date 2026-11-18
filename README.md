@@ -58,12 +58,12 @@ Six plugin kinds, all registered with `@register(kind, name, params=[...])`
 
 | Kind | Signature | Built-ins |
 |---|---|---|
-| `data` | `(**params) -> MarketData` | `synthetic`, `parquet` |
-| `feature` | `(view, symbol, **p) -> float` | `premarket_gap`, `last_close`, `avg_dollar_volume`, `realized_vol`, `atr`, `atr_pct`, `trailing_return`, `random` |
+| `data` | `(**params) -> MarketData` | `synthetic`, `synthetic_futures`, `parquet` |
+| `feature` | `(view, symbol, **p) -> float` | `premarket_gap`, `last_close`, `avg_dollar_volume`, `realized_vol`, `atr`, `atr_pct`, `trailing_return`, `random`, `opening_range`, `htf_ema_spread` |
 | `mapping` | `(x, **p) -> float` | `identity`, `constant`, `linear`, `piecewise`, `step` |
 | `signal` | `(path, ctx, **p) -> bool[]` | `atr_trailing`, `ema_cross`, `heikin_ashi`, `time_stop`, `any_of`, `never` |
-| `strategy` | class: `decision_times`, `decide(view, resolver)` | `weekly_topn` |
-| `evaluator` | `(ectx, **p) -> Verdict` | `out_of_sample`, `bootstrap`, `deflated_sharpe`, `cost_stress`, `random_baseline`, `benchmark`, `parameter_stability` |
+| `strategy` | class: `decision_times`, `decide(view, resolver)`, optional `poll_schedule` | `weekly_topn`, `opening_range_breakout` |
+| `evaluator` | `(ectx, **p) -> Verdict` | `out_of_sample`, `bootstrap`, `deflated_sharpe`, `cost_stress`, `random_baseline`, `benchmark`, `parameter_stability`, `ablation` |
 
 ### Honesty mechanisms built into the core
 
@@ -113,6 +113,75 @@ reversal": the 10-minute-smoothed price falling `k × ATR(14)` below its peak,
 with the smoothing span mapped from 20-day volatility. Anything still open
 sells at the week's last close.
 
+## Second strategy: Nasdaq futures opening range breakout
+
+`configs/nq_orb_trend_filter.json`. A strategy sold in a video, with its rules
+written down **before** testing (each one is a patch-bay setting):
+
+| Rule | Default |
+|---|---|
+| Box | high/low of 09:30-09:45 New York time (`box_start`, `box_end`) |
+| Entry | first 5-minute candle (`signal_minutes`) that **closes** outside the box; enter at the next candle's open |
+| 1R | box height from the fill (`stop_at: box_height`, `risk_r: 1`); or `opposite_edge` |
+| Stop / target | 1R / 3R (`target_r`); stop is a market order when hit, target a resting limit |
+| Exit otherwise | flat at 16:00 (`flat_time`) |
+| Per day | one trade at most; no entries after 15:30 (`last_entry`, our addition: the video gives none) |
+| Trend filter | longs only if 15-min (`trend_timeframe`) EMA50 > EMA200 (`ema_fast`, `ema_slow`), shorts only if below; a breakout the filter rejects means no trade that day (`filtered_breakout: skip_day`) |
+| Contract, costs | 1 MNQ ($2/point, 0.25 tick) on a $10,000 account; $0.85 commission per side all-in; 1 tick slippage on entry, stop and flat-at-close; targets fill at their price |
+
+How it fits the core:
+
+* **Event-driven entries, still guarded.** A strategy can return a
+  `poll_schedule`; the engine asks `decide` again at every 5-minute close
+  with a `GuardedView` pinned to that instant, so the breakout candle must have
+  closed before the strategy can see it. The trend EMAs drop the 15-minute
+  candle still forming.
+* **Shorts, brackets, futures P&L.** `Entry` takes `side`, a stop
+  (`stop_price` or `stop_dist`) and `target_r`. Brackets are checked bar by
+  bar; if one minute bar touches both stop and target we assume the stop
+  (`stop_both_touched`), and a bar that opens through the stop fills at its open.
+  With an `instrument` block, results are dollars per contract and each trade
+  reports its R multiple.
+* **Filtered vs unfiltered.** The `ablation` evaluator re-runs the chosen
+  variant without the filter and tests the day-by-day difference. The random
+  baseline keeps the same trade times and flips a coin for direction.
+* **Hindsight.** The sweep varies box end (09:35/09:45/10:00), target
+  (2/3/4R), filter timeframe (5/15/30 min) and EMA lengths (20 or 50 / 100 or
+  200): 108 variants. The runner also reports where the rules as written
+  (no sweep) rank among them.
+
+What the synthetic data shows (`synthetic_futures` has no edge unless planted):
+
+* Default seed, no edge: the best of the 108 variants (30-min EMA50/200,
+  2R target) makes $15.7k on one MNQ over two years, beats the unfiltered
+  version, passes out-of-sample, bootstrap, cost stress, random baseline and
+  parameter stability, and only the deflated Sharpe (65%) catches it. The rules
+  as written rank 27th of 108. Across 12 other seeds the fixed rules average
+  about zero (filtered -$414, unfiltered +$701, ±$7-8k). That is how easily a
+  "trend filter upgrade" appears from nothing once its settings are picked
+  afterwards.
+* Planted breakout edge (`orb_momentum: 1`): every test passes except the
+  filter ablation, which correctly reports that the filter adds nothing:
+  262 trades for $29.3k with it, 496 trades for $29.1k without. Half the trades
+  and the same total, exactly the video's chart, from a filter that does nothing.
+* Planted trend (`trend_strength: 0.5`): the ablation passes (t = 2.5).
+
+### Real futures data
+
+Futures need a different source from the equity downloader.
+`scripts/download_databento.py` pulls CME Globex 1-minute bars (`GLBX.MDP3`,
+`ohlcv-1m`) for the volume-rolled front month, back-adjusts each quarterly
+roll using the second month, and writes `data/minute/MNQ.parquet`. It prints
+the cost estimate first. Then point the config at it:
+
+```json
+"data": {"plugin": "parquet", "params": {"root": "data", "symbols": ["MNQ"]}}
+```
+
+It has not been run against a live key yet. Real data adds holidays and early
+closes (exits then show as `delisted_or_halted`) and minutes without trades.
+MNQ starts in May 2019; for longer history use NQ prices with `point_value: 2`.
+
 ## Data
 
 The `synthetic` plugin needs nothing. For real data, `scripts/download_polygon.py`
@@ -126,4 +195,6 @@ files are git-ignored. The downloader has not yet been run against a live key.
   portfolio-level capital constraints or overlapping holdings across weeks.
 * Trading calendar is inferred from the data, not an exchange calendar.
 * Fills use minute-bar opens/closes; no order-book or auction modelling.
+  Futures targets fill when touched, which flatters limit orders slightly
+  (raise `target_slippage_ticks`, or stress costs, to be stricter).
 * Timestamps are naive US/Eastern.

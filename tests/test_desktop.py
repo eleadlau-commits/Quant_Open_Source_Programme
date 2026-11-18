@@ -26,3 +26,27 @@ def test_window_runs_small_config():
     app.processEvents()
     assert "tests" in w.summary.text()
     assert w.sweep_table.rowCount() == 3
+
+
+def test_window_runs_orb_config():
+    from honestbt.desktop.app import MainWindow
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    w = MainWindow()
+    import json
+    i = w.preset.findText("nq_orb_trend_filter")
+    assert i >= 0
+    w.preset.setCurrentIndex(i)
+    cfg = json.loads(w.editor.toPlainText())
+    cfg["data"]["params"]["n_days"] = 80
+    cfg["sweep"] = {"strategy.params.target_r": [2.0, 3.0, 4.0]}
+    cfg["evaluators"] = [{"plugin": "ablation"}, {"plugin": "parameter_stability"}]
+    w.editor.setPlainText(json.dumps(cfg))
+    w.run()
+    t0 = time.time()
+    while w._thread is not None and time.time() - t0 < 60:
+        app.processEvents()
+        time.sleep(0.02)
+    app.processEvents()
+    assert "ranked" in w.summary.text()
+    assert w.trades_table.horizontalHeaderItem(7).text() == "R"
+    assert len(w.chart.series) == 2

@@ -39,6 +39,11 @@ def run_config(cfg: dict, data=None, strict: bool = True) -> dict:
 
     points = [(pt, c, run_one(c)) for pt, c in expand_sweep(cfg)]
     selected = max(range(len(points)), key=lambda i: points[i][2].metrics().get("sharpe", float("-inf")))
+    # The rules as written in the config before any sweep: what you fixed in advance.
+    pre_cfg = {k: v for k, v in cfg.items() if k != "sweep"}
+    pre = run_one(pre_cfg).metrics()
+    sharpes = sorted((res.metrics().get("sharpe", 0.0) for _, _, res in points), reverse=True)
+    pre_rank = 1 + sum(s > pre.get("sharpe", 0.0) + 1e-12 for s in sharpes)
     ectx = EvalContext(data, cfg, points, selected, run_one)
 
     verdicts: list[Verdict] = []
@@ -56,6 +61,7 @@ def run_config(cfg: dict, data=None, strict: bool = True) -> dict:
         "selected_point": points[selected][0],
         "selected": points[selected][2].to_json(),
         "sweep": [{"point": pt, "metrics": res.metrics()} for pt, _, res in points],
+        "preregistered": {"metrics": pre, "rank": pre_rank, "of": len(points)},
         "verdicts": [v.__dict__ for v in verdicts],
         "summary": {
             "survived": n_pass, "evaluated": len(decided),

@@ -58,10 +58,11 @@ class GuardedView:
         return d.head(n)
 
     # ---- minute ---------------------------------------------------------
-    def minute(self, symbol: str, start=None, end=None) -> np.ndarray:
+    def minute(self, symbol: str, start=None, end=None, with_ts: bool = False):
         """Minute bars (open, high, low, close, volume) whose bar *ends* by ``end``.
 
-        ``end`` defaults to ``as_of``; asking for a later end raises.
+        ``end`` defaults to ``as_of``; asking for a later end raises. With
+        ``with_ts=True`` returns ``(timestamps, bars)``; timestamps are bar starts.
         """
         end = self.as_of if end is None else np.datetime64(pd.Timestamp(end), "ns")
         if end > self.as_of:
@@ -69,7 +70,7 @@ class GuardedView:
         ts, arr = self._data.ts[symbol], self._data.arr[symbol]
         hi = int(np.searchsorted(ts, end - MINUTE, "right"))
         lo = 0 if start is None else int(np.searchsorted(ts, np.datetime64(pd.Timestamp(start), "ns"), "left"))
-        return arr[lo:hi]
+        return (ts[lo:hi], arr[lo:hi]) if with_ts else arr[lo:hi]
 
     def premarket_last(self, symbol: str) -> float:
         """Last pre-market trade price today that is visible at ``as_of``."""

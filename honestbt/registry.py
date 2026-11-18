@@ -91,8 +91,8 @@ def load_plugins() -> None:
         return
     _loaded = True
     from . import evaluators, features, mappings, signals  # noqa: F401
-    from .data import parquet_source, synthetic  # noqa: F401
-    from .strategies import weekly_topn  # noqa: F401
+    from .data import parquet_source, synthetic, synthetic_futures  # noqa: F401
+    from .strategies import orb, weekly_topn  # noqa: F401
 
     for ep in entry_points(group="honestbt.plugins"):
         ep.load()

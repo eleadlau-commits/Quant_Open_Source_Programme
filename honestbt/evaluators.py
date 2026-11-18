@@ -62,13 +62,14 @@ def out_of_sample(ectx: EvalContext, split=0.6):
         return Verdict("Out-of-sample", None, "Not enough periods", "Need at least 8 periods.")
     cut = idx[int(len(idx) * split)]
     best, best_is = None, -np.inf
+    ppy = ectx.sel_result.periods_per_year
     for i, (_, _, res) in enumerate(ectx.points):
-        s = _sharpe(res.periods[res.periods.index < cut].to_numpy())
+        s = _sharpe(res.periods[res.periods.index < cut].to_numpy(), ppy)
         if s > best_is:
             best, best_is = i, s
     res = ectx.points[best][2]
     oos = res.periods[res.periods.index >= cut].to_numpy()
-    oos_sharpe, oos_mean = _sharpe(oos), float(np.mean(oos))
+    oos_sharpe, oos_mean = _sharpe(oos, ppy), float(np.mean(oos))
     passed = oos_mean > 0 and oos_sharpe > 0
     return Verdict(
         "Out-of-sample", passed,
@@ -144,7 +145,7 @@ def cost_stress(ectx: EvalContext, multiplier=2.0):
     base = ectx.sel_result.metrics()
     cfg = with_overrides(ectx.sel_config, {"costs.multiplier": multiplier})
     m = ectx.run(cfg).metrics()
-    gross = summarize(ectx.sel_result.periods_gross, ectx.sel_result.trades)
+    gross = summarize(ectx.sel_result.periods_gross, ectx.sel_result.trades, ectx.sel_result.periods_per_year)
     return Verdict(
         "Cost stress", m.get("mean_period_return", 0) > 0,
         f"Mean return per period: gross {gross.get('mean_period_return', 0):+.3%}, "
@@ -174,11 +175,19 @@ def random_baseline(ectx: EvalContext, n=40, rank_path="strategy.params.rank_by"
         means.append(float(ectx.run(cfg).periods.mean()))
     means = np.array(means)
     p = float((1 + np.sum(means >= actual)) / (n + 1))
+    if "direction" in rank_path:
+        what, why = "coin-flip directions", (
+            "Keeps everything (same trade times, stop, target, costs) but flips a coin for long or short. "
+            "If coin flips do as well, the breakout direction adds nothing and the result came from the "
+            "stop/target shape or from luck.")
+    else:
+        what, why = "random picks", (
+            "Keeps everything (filter, exit rule, costs) but picks names at random. If random picks do "
+            "as well, the ranking adds nothing and the result came from the market or the exit rule.")
     return Verdict(
         "Random baseline", p < alpha,
-        f"Beat {np.mean(means < actual):.0%} of {n} random picks (p = {p:.2f})",
-        "Keeps everything (filter, exit rule, costs) but picks names at random. If random picks do "
-        "as well, the ranking adds nothing and the result came from the market or the exit rule.",
+        f"Beat {np.mean(means < actual):.0%} of {n} {what} (p = {p:.2f})",
+        why,
         {"p_value": p, "actual_mean": actual, "random_means": means.round(6).tolist()},
     )
 
@@ -223,4 +232,46 @@ def parameter_stability(ectx: EvalContext, min_share=0.7):
         "A real effect should work across nearby settings. If only a narrow island of the sweep "
         "makes money, it is probably a coincidence.",
         {"grid": rows, "share_profitable": share},
+    )
+
+
+@register("evaluator", "ablation", params=[
+    Param("path", "str", "strategy.params.trend_filter", "Config path of the ingredient to switch"),
+    Param("value", "json", False, "Value that removes the ingredient"),
+    Param("label", "str", "trend filter", "Name of the ingredient, for the report"),
+], doc="Does one ingredient (e.g. a trend filter) actually help? Re-run without it and compare day by day.")
+def ablation(ectx: EvalContext, path="strategy.params.trend_filter", value=False, label="trend filter"):
+    if get_path(ectx.sel_config, path, default=KeyError) is KeyError:
+        return Verdict(f"Ablation: {label}", None, "Ingredient not in config", f"{path} not found.")
+    with_it = ectx.sel_result
+    without = ectx.run(with_overrides(ectx.sel_config, {path: value}))
+    if get_path(ectx.sel_config, path) == value:
+        with_it, without = without, with_it  # the selected variant is the one without it
+        note = "The best-looking variant already left it out, so it is compared with the version that keeps it. "
+    else:
+        note = ""
+    a, b = with_it.metrics(), without.metrics()
+    idx = with_it.periods.index.union(without.periods.index)
+    diff = (with_it.periods.reindex(idx).fillna(0) - without.periods.reindex(idx).fillna(0)).to_numpy()
+    se = np.std(diff, ddof=1) / math.sqrt(len(diff)) if len(diff) > 1 else float("inf")
+    t = float(np.mean(diff) / se) if se > 0 else 0.0
+
+    def per_trade(res):
+        r = np.array([x.net_return for x in res.trades])
+        return float(r.mean()) if len(r) else 0.0
+
+    pa, pb = per_trade(with_it), per_trade(without)
+    unit = "$" if "total_pnl_usd" in a else ""
+    tot = (lambda m: f"${m.get('total_pnl_usd', 0):,.0f}") if unit else (lambda m: f"{m.get('total_return', 0):+.1%}")
+    return Verdict(
+        f"Ablation: {label}", t > 1.65,
+        f"With {label}: {a['n_trades']} trades, total {tot(a)}. Without: {b['n_trades']} trades, total {tot(b)} "
+        f"(daily difference t = {t:.2f})",
+        note + f"Removes the {label} and keeps everything else. Fewer trades with a similar total makes each trade "
+        "look better, but that alone is not an improvement: the question is whether the version with it earns "
+        "clearly more per day, which is what the t-statistic tests.",
+        {"with": a, "without": b, "t_stat": t, "mean_daily_diff": float(np.mean(diff)),
+         "per_trade_with": pa, "per_trade_without": pb,
+         "without_equity": {"t": [str(x) for x in without.periods.index],
+                            "v": (1 + without.periods).cumprod().round(6).tolist()}},
     )
