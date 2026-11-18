@@ -160,6 +160,28 @@ functions). Example (`configs/monday_gap_top5.json`):
           "mappings.smooth_from_vol.params.slope": [0, 20, 40]}
 ```
 
+**Building in the desktop app.** You don't have to type the JSON by hand:
+
+* **New…** starts a strategy from a strategy plugin (a copy of the shipped
+  example that uses it, so it runs straight away).
+* In the patch bay, **right-click** to add a feature, a mapping (cable), an
+  exit signal or a test; right-click a mapping to plug it into a strategy
+  setting or choose its input; right-click a feature to use it for ranking;
+  right-click the strategy or data box to swap them. **Click** a box to jump
+  to its settings in the editor.
+* In the **Plugin catalogue** tab, double-click any plugin to add it.
+* **Hover** over anything (a word in the settings, a patch-bay box, a button,
+  a test) and the help line at the bottom of the window explains it.
+* **Presets** are ready-made strategy files to start from: the examples in
+  `configs/`, strategy families shipped in plugin packs (shown with the
+  pack's name) and your own saved files (shown as "mine").
+* In **Verdicts**, every test is its own block: drag blocks to arrange them
+  and fold the ones you've read. The layout is remembered.
+
+The patch bay recombines existing pieces. Genuinely new trading logic (a new
+kind of entry rule) is a strategy plugin:
+`python -m honestbt.plugins new my-rules --kind strategy`.
+
 ## Guiding strategy: Monday top-5 gappers
 
 Every week on the first trading day at 09:30, using only pre-market data:

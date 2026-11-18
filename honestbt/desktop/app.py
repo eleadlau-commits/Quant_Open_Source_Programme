@@ -13,22 +13,25 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
-    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem,
+    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QMainWindow,
+    QMenu, QMessageBox, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
     QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from ..patchbay import validate
+from ..patchbay import expand_evaluators, validate
 from ..paths import app_dir
 from ..plugins import presets as plugin_presets
 from ..plugins import statuses as plugin_statuses
 from ..registry import catalog, load_plugins
 from ..runner import run_config
+from . import builder
+from .help import KIND_WORDS, UI, plugin_doc
 from .plugins_dialog import PluginsDialog
-from .widgets import EquityChart, PatchBayView
+from .verdicts import VerdictBoard
+from .widgets import EquityChart, HoverEditor, PatchBayView
 
 def _find_root() -> Path:
     """Folder holding configs/: the PyInstaller bundle, the source checkout, or the
@@ -68,22 +71,14 @@ class RunWorker(QObject):
             self.failed.emit(f"{exc}\n\n{traceback.format_exc(limit=3)}")
 
 
-class VerdictCard(QFrame):
-    def __init__(self, v: dict):
-        super().__init__()
-        color = PASS if v["passed"] is True else FAIL if v["passed"] is False else NA
-        tag = "PASS" if v["passed"] is True else "FAIL" if v["passed"] is False else "N/A"
-        self.setStyleSheet(f"VerdictCard {{ border-left: 4px solid {color.name()}; }}")
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 4, 4, 4)
-        head = QLabel(f"<span style='color:{color.name()}; font-weight:600'>{tag}</span>&nbsp; "
-                      f"<b>{v['name']}:</b> {v['headline']}")
-        head.setWordWrap(True)
-        body = QLabel(v["explanation"])
-        body.setWordWrap(True)
-        body.setStyleSheet("color: gray;")
-        lay.addWidget(head)
-        lay.addWidget(body)
+def tip(widget, text: str):
+    """Same text as a tooltip and on the help line at the bottom of the window."""
+    widget.setToolTip(text)
+    widget.setStatusTip(text)
+    return widget
+
+
+HELP_IDLE = "Hover over anything to see what it does."
 
 
 class MainWindow(QMainWindow):
@@ -102,6 +97,8 @@ class MainWindow(QMainWindow):
         self.run_btn = QPushButton("Run")
         self.run_btn.setDefault(True)
         self.run_btn.clicked.connect(self.run)
+        new_btn = QPushButton("New…")
+        new_btn.clicked.connect(self.new_strategy)
         open_btn = QPushButton("Open…")
         open_btn.clicked.connect(self.open_file)
         save_btn = QPushButton("Save as…")
@@ -112,12 +109,21 @@ class MainWindow(QMainWindow):
         title = QLabel("<b style='font-size:16px'>Titanium</b>  <span style='color:gray'>honest backtests for strategy families</span>")
         top.addWidget(title)
         top.addStretch()
-        for w in (QLabel("Preset:"), self.preset, open_btn, save_btn, plugins_btn, self.run_btn):
+        preset_lbl = QLabel("Preset:")
+        for w, key in ((preset_lbl, "preset"), (self.preset, "preset"), (new_btn, "new"), (open_btn, "open"),
+                       (save_btn, "save"), (plugins_btn, "plugins"), (self.run_btn, "run")):
+            tip(w, UI[key])
             top.addWidget(w)
 
         # ---- left: patch bay
         self.graph = PatchBayView()
-        self.editor = QPlainTextEdit()
+        tip(self.graph, UI["patchbay"])
+        self.graph.setToolTip("")  # the graph shows its own per-box tooltips
+        self.graph.hovered.connect(self.show_help)
+        self.graph.clicked.connect(self.reveal)
+        self.graph.edited.connect(self.apply_config)
+        self.editor = HoverEditor()
+        self.editor.hovered.connect(self.show_help)
         self.editor.setFont(QFont("Menlo" if sys.platform == "darwin" else "Consolas", 10))
         self.editor.textChanged.connect(self.on_edit)
         self.problems = QLabel()
@@ -125,8 +131,14 @@ class MainWindow(QMainWindow):
         self.problems.setStyleSheet(f"color: {FAIL.name()};")
         self.catalogue = QTreeWidget()
         self.catalogue.setHeaderLabels(["Plugin", "What it does", "Settings"])
+        self.catalogue.setMouseTracking(True)
+        self.catalogue.itemEntered.connect(self.catalogue_hover)
+        self.catalogue.itemDoubleClicked.connect(self.catalogue_add)
+        self.catalogue.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.catalogue.customContextMenuRequested.connect(self.catalogue_menu)
         self.fill_catalogue()
         left_tabs = QTabWidget()
+        self.left_tabs = left_tabs
         edit_page = QWidget()
         el = QVBoxLayout(edit_page)
         el.setContentsMargins(0, 0, 0, 0)
@@ -134,11 +146,13 @@ class MainWindow(QMainWindow):
         el.addWidget(self.problems)
         left_tabs.addTab(edit_page, "Settings (JSON)")
         left_tabs.addTab(self.catalogue, "Plugin catalogue")
+        self._tab_help(left_tabs)
         left = QSplitter(Qt.Vertical)
         gbox = QWidget()
         gl = QVBoxLayout(gbox)
         gl.setContentsMargins(0, 0, 0, 0)
-        gl.addWidget(QLabel("<b>Patch bay</b> <span style='color:gray'>features → mappings (cables) → strategy</span>"))
+        gl.addWidget(tip(QLabel("<b>Patch bay</b> <span style='color:gray'>features → mappings (cables) → strategy"
+                                " · click a box to edit · right-click to add or plug in</span>"), UI["patchbay"]))
         gl.addWidget(self.graph)
         left.addWidget(gbox)
         left.addWidget(left_tabs)
@@ -149,13 +163,9 @@ class MainWindow(QMainWindow):
         self.summary.setWordWrap(True)
         self.summary.setFrameShape(QFrame.StyledPanel)
         self.summary.setMargin(8)
-        self.verdict_box = QVBoxLayout()
-        self.verdict_box.addStretch()
-        vwrap = QWidget()
-        vwrap.setLayout(self.verdict_box)
-        vscroll = QScrollArea()
-        vscroll.setWidgetResizable(True)
-        vscroll.setWidget(vwrap)
+        tip(self.summary, UI["summary"])
+        self.verdicts = VerdictBoard()
+        self.verdicts.hovered.connect(self.show_help)
         self.chart = EquityChart()
         self.sweep_table = QTableWidget()
         self.trades_table = QTableWidget()
@@ -164,7 +174,7 @@ class MainWindow(QMainWindow):
             t.setSortingEnabled(True)
             t.verticalHeader().setVisible(False)
         res_tabs = QTabWidget()
-        res_tabs.addTab(vscroll, "Verdicts")
+        res_tabs.addTab(self.verdicts, "Verdicts")
         res_tabs.addTab(self.chart, "Equity")
         res_tabs.addTab(self.sweep_table, "Sweep")
         res_tabs.addTab(self.trades_table, "Trades")
@@ -174,17 +184,26 @@ class MainWindow(QMainWindow):
         rl.addWidget(self.summary)
         rl.addWidget(res_tabs, 1)
         self.res_tabs = res_tabs
+        self._tab_help(res_tabs)
 
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
         split.addWidget(right)
         split.setSizes([600, 800])
+        self.help_line = QLabel(HELP_IDLE)
+        self.help_line.setWordWrap(True)
+        self.help_line.setMinimumHeight(38)
+        self.help_line.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.help_line.setFrameShape(QFrame.StyledPanel)
+        self.help_line.setMargin(6)
+        self.help_line.setStyleSheet("QLabel { background: palette(alternate-base); }")
         foot = QLabel(DISCLAIMER)
         foot.setStyleSheet("color: gray; font-size: 11px;")
         central = QWidget()
         cl = QVBoxLayout(central)
         cl.addLayout(top)
         cl.addWidget(split, 1)
+        cl.addWidget(self.help_line)
         cl.addWidget(foot)
         self.setCentralWidget(central)
 
@@ -195,6 +214,89 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready. Ctrl+Enter runs.")
         if self.preset.count():
             self.load_preset(0)
+
+    # ---- hover help (the line above the disclaimer)
+    def show_help(self, text: str):
+        self.help_line.setText(text or HELP_IDLE)
+
+    def event(self, e):
+        if e.type() == QEvent.StatusTip:  # widgets with a status tip report it here on hover
+            self.show_help(e.tip())
+            return True
+        return super().event(e)
+
+    def _tab_help(self, tabs: QTabWidget):
+        bar = tabs.tabBar()
+        bar.setMouseTracking(True)
+        bar.installEventFilter(self)
+        for i in range(tabs.count()):
+            tabs.setTabToolTip(i, UI.get(tabs.tabText(i), ""))
+
+    def eventFilter(self, obj, e):
+        if e.type() == QEvent.MouseMove and hasattr(obj, "tabAt"):
+            i = obj.tabAt(e.position().toPoint())
+            self.show_help(UI.get(obj.tabText(i), "") if i >= 0 else "")
+        elif e.type() == QEvent.Leave and hasattr(obj, "tabAt"):
+            self.show_help("")
+        return super().eventFilter(obj, e)
+
+    # ---- building in the patch bay and the catalogue
+    def apply_config(self, cfg: dict, what: str = ""):
+        self.editor.setPlainText(json.dumps(cfg, indent=2))
+        if what:
+            self.statusBar().showMessage(what, 6000)
+
+    def reveal(self, key: str):
+        self.left_tabs.setCurrentIndex(0)
+        self.editor.select_key(key)
+
+    def new_strategy(self):
+        names = [it["name"] for it in catalog().get("strategy", []) if not it["name"].startswith("_")]
+        if not names:
+            QMessageBox.warning(self, "No strategies", "No strategy plugin is switched on. See Plugins….")
+            return
+        labels = [f"{n}: {plugin_doc('strategy', n)[:90]}" for n in names]
+        choice, ok = QInputDialog.getItem(self, "New strategy", "Trading rules to start from:", labels, 0, False)
+        if not ok:
+            return
+        name = names[labels.index(choice)]
+        self.current_path = None
+        examples = sorted(CONFIGS.glob("*.json")) + [Path(p["path"]) for p in plugin_presets()]
+        self.apply_config(builder.new_config(name, examples),
+                          f"New {name} strategy. Add pieces in the patch bay, then Save as… to keep it.")
+
+    def _catalogue_entry(self, item):
+        parent = item.parent() if item else None
+        return (parent.data(0, Qt.UserRole), item.text(0)) if parent else None
+
+    def catalogue_hover(self, item, _col):
+        entry = self._catalogue_entry(item)
+        if entry:
+            kind, name = entry
+            self.show_help(f"{KIND_WORDS[kind]} '{name}': {plugin_doc(kind, name)} Double-click to add it.")
+        else:
+            self.show_help(UI["catalogue"])
+
+    def catalogue_add(self, item, _col=0):
+        entry = self._catalogue_entry(item)
+        cfg = self.config()
+        if not entry or cfg is None:
+            return
+        kind, name = entry
+        new, where = builder.add(cfg, kind, name)
+        self.apply_config(new, f"Added {KIND_WORDS[kind].lower()} '{name}' at {where}")
+        self.reveal(where.split(".")[-1] if kind in ("feature", "mapping") else where.split(".")[0])
+
+    def catalogue_menu(self, pos):
+        item = self.catalogue.itemAt(pos)
+        entry = self._catalogue_entry(item)
+        if not entry:
+            return
+        kind, name = entry
+        verb = {"signal": "Use as exit signal", "data": "Use as data source", "strategy": "Switch strategy to this"}
+        menu = QMenu(self)
+        menu.addAction(f"{verb.get(kind, 'Add to strategy')}: {name}").triggered.connect(lambda: self.catalogue_add(item))
+        menu.exec(self.catalogue.viewport().mapToGlobal(pos))
 
     # ---- config handling
     def fill_presets(self):
@@ -225,6 +327,7 @@ class MainWindow(QMainWindow):
             if not items:
                 continue
             parent = QTreeWidgetItem([kind, "", ""])
+            parent.setData(0, Qt.UserRole, kind)
             parent.setFirstColumnSpanned(True)
             f = parent.font(0)
             f.setBold(True)
@@ -264,6 +367,7 @@ class MainWindow(QMainWindow):
         probs = validate(cfg)
         self.problems.setText("\n".join(probs))
         self.graph.set_config(cfg)
+        self.editor.cfg = cfg
 
     def open_file(self):
         fn, _ = QFileDialog.getOpenFileName(self, "Open settings", str(USER_DIR if USER_DIR.exists() else CONFIGS), "JSON (*.json)")
@@ -289,6 +393,7 @@ class MainWindow(QMainWindow):
         if probs:
             QMessageBox.warning(self, "Settings problem", "\n".join(probs))
             return
+        self._run_cfg = cfg
         self.run_btn.setEnabled(False)
         self.run_btn.setText("Running…")
         self.statusBar().showMessage("Running backtest, sweep and tests…")
@@ -322,12 +427,7 @@ class MainWindow(QMainWindow):
             f"<b style='color:{color.name()}'>Survived {s['survived']} of {s['evaluated']} tests: {s['overall']}.</b><br>"
             f"<span style='color:gray'>Selected variant {json.dumps(out['selected_point'])} · {out['data']} · "
             f"{out['elapsed_s']} s. {s['note']}</span>" + self._prereg_line(out))
-        while self.verdict_box.count() > 1:
-            w = self.verdict_box.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-        for i, v in enumerate(out["verdicts"]):
-            self.verdict_box.insertWidget(i, VerdictCard(v))
+        self.verdicts.set_verdicts(out["verdicts"], self._test_docs(len(out["verdicts"])))
 
         series = [("strategy", out["selected"]["equity"]["v"], QColor("#2f5bd3"))]
         bm = next((v for v in out["verdicts"] if v["name"] == "Benchmark"), None)
@@ -341,6 +441,15 @@ class MainWindow(QMainWindow):
         self.fill_sweep(out["sweep"])
         self.fill_trades(out["selected"]["trades"])
         self.statusBar().showMessage(f"Done in {out['elapsed_s']} s", 8000)
+
+    def _test_docs(self, n: int) -> list[str]:
+        """What each test checks, from its plugin's description (verdicts come back in evaluator order)."""
+        try:
+            evs = expand_evaluators(getattr(self, "_run_cfg", None) or {})
+        except ValueError:  # ConfigError; the run itself already reported it
+            evs = []
+        docs = [plugin_doc("evaluator", e.get("plugin", "")) for e in evs if isinstance(e, dict)]
+        return (docs + [""] * n)[:n]
 
     @staticmethod
     def _prereg_line(out: dict) -> str:
