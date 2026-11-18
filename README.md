@@ -12,7 +12,14 @@ catch luck, overfitting, look-ahead and unrealistic costs.
 
 ## Quick start
 
-**Desktop app (recommended).** Install Python 3.11+ from python.org, then
+**Windows:** from the
+[desktop-latest release](https://github.com/eleadlau-commits/Quant_Open_Source_Programme/releases/tag/desktop-latest)
+download `StrategyLabSetup.exe` (installer: pick *Standalone* or *Use my
+installed Python*) or `StrategyLab.exe` (portable single file, no install). It's unsigned, so Windows SmartScreen may warn: click
+*More info → Run anyway*. Your own strategy files are saved in
+`Documents/Strategy Lab`.
+
+**From source (any OS).** Install Python 3.11+ from python.org, then
 double-click `Strategy Lab.bat` (Windows) or `Strategy Lab.command` (Mac).
 The first launch sets up a private environment in `.venv` (a few minutes);
 after that it opens straight away. Or from a terminal:
