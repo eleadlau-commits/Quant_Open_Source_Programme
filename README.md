@@ -12,9 +12,10 @@ catch luck, overfitting, look-ahead and unrealistic costs.
 
 ## Quick start
 
-**Windows, no install:** download `StrategyLab.exe` from the
+**Windows:** from the
 [desktop-latest release](https://github.com/eleadlau-commits/Quant_Open_Source_Programme/releases/tag/desktop-latest)
-and double-click it. It's unsigned, so Windows SmartScreen may warn: click
+download `StrategyLabSetup.exe` (installer: pick *Standalone* or *Use my
+installed Python*) or `StrategyLab.exe` (portable single file, no install). It's unsigned, so Windows SmartScreen may warn: click
 *More info → Run anyway*. Your own strategy files are saved in
 `Documents/Strategy Lab`.
 

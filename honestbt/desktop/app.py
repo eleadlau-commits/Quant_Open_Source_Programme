@@ -26,8 +26,18 @@ from ..registry import catalog, load_plugins
 from ..runner import run_config
 from .widgets import EquityChart, PatchBayView
 
-# In a PyInstaller build, bundled files live under sys._MEIPASS.
-ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+def _find_root() -> Path:
+    """Folder holding configs/: the PyInstaller bundle, the source checkout, or the
+    installer's app folder (parent of its .venv)."""
+    candidates = [Path(getattr(sys, "_MEIPASS", "")), Path(__file__).resolve().parents[2],
+                  Path(sys.prefix).parent]
+    for c in candidates:
+        if str(c) and (c / "configs").is_dir():
+            return c
+    return Path(__file__).resolve().parents[2]
+
+
+ROOT = _find_root()
 CONFIGS = ROOT / "configs"
 USER_DIR = Path.home() / "Documents" / "Strategy Lab"  # where your own strategy files are saved
 PASS, FAIL, NA = QColor("#1f8a4c"), QColor("#c0392b"), QColor("#8a8a84")
