@@ -1,6 +1,6 @@
-"""Strategy Lab desktop app.
+"""Titanium desktop app.
 
-    python -m honestbt.desktop        (or the `strategy-lab` command after pip install)
+    python -m honestbt.desktop        (or the `titanium` command after pip install)
 
 Everything runs locally: the window calls the honestbt engine directly, no
 server and no browser.
@@ -14,7 +14,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence
+from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..patchbay import validate
+from ..paths import app_dir
 from ..plugins import presets as plugin_presets
 from ..plugins import statuses as plugin_statuses
 from ..registry import catalog, load_plugins
@@ -42,7 +43,8 @@ def _find_root() -> Path:
 
 ROOT = _find_root()
 CONFIGS = ROOT / "configs"
-USER_DIR = Path.home() / "Documents" / "Strategy Lab"  # where your own strategy files are saved
+USER_DIR = app_dir()  # ~/Documents/Titanium: where your own strategy files are saved
+ICON = Path(__file__).resolve().parent / "assets" / "titanium.png"
 PASS, FAIL, NA = QColor("#1f8a4c"), QColor("#c0392b"), QColor("#8a8a84")
 DISCLAIMER = "Passing these tests means a result survived them. It is not evidence a strategy will make money. Not financial advice."
 
@@ -88,7 +90,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         load_plugins()
-        self.setWindowTitle("Strategy Lab")
+        self.setWindowTitle("Titanium")
         self.resize(1400, 900)
         self.current_path: Path | None = None
         self._thread: QThread | None = None
@@ -107,7 +109,7 @@ class MainWindow(QMainWindow):
         plugins_btn = QPushButton("Plugins…")
         plugins_btn.clicked.connect(self.show_plugins)
         top = QHBoxLayout()
-        title = QLabel("<b style='font-size:16px'>Strategy Lab</b>  <span style='color:gray'>honest backtests for strategy families</span>")
+        title = QLabel("<b style='font-size:16px'>Titanium</b>  <span style='color:gray'>honest backtests for strategy families</span>")
         top.addWidget(title)
         top.addStretch()
         for w in (QLabel("Preset:"), self.preset, open_btn, save_btn, plugins_btn, self.run_btn):
@@ -408,7 +410,7 @@ def self_test(app: QApplication, win: MainWindow) -> int:
     app.processEvents()
     off = [f"{s.id}: {s.reason}" for s in plugin_statuses() if s.source == "builtin" and s.state != "on"]
     ok = win.sweep_table.rowCount() > 0 and "tests" in win.summary.text() and not off
-    out = Path(os.environ.get("STRATEGY_LAB_SELFTEST_OUT", "strategy_lab_selftest.txt"))
+    out = Path(os.environ.get("TITANIUM_SELFTEST_OUT", "titanium_selftest.txt"))
     out.write_text(("OK " if ok else "FAIL ") + win.summary.text() + "".join(f"\nplugin off: {x}" for x in off))
     return 0 if ok else 1
 
@@ -416,7 +418,9 @@ def self_test(app: QApplication, win: MainWindow) -> int:
 def main(argv=None, on_shown=None):
     argv = sys.argv if argv is None else argv
     app = QApplication(argv)
-    app.setApplicationName("Strategy Lab")
+    app.setApplicationName("Titanium")
+    if ICON.exists():
+        app.setWindowIcon(QIcon(str(ICON)))
     win = MainWindow()
     win.show()  # shown in self-test too, so CI exercises the real window system
     if on_shown:

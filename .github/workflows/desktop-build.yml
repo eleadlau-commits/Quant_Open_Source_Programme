@@ -1,6 +1,6 @@
 name: desktop-build
-# Builds the Windows installer (StrategyLabSetup.exe) and a portable
-# StrategyLab.exe, test-installs both installer options silently, and on pushes
+# Builds the Windows installer (TitaniumSetup.exe) and a portable
+# Titanium.exe, test-installs both installer options silently, and on pushes
 # to main publishes both on the "desktop-latest" release:
 # https://github.com/<owner>/<repo>/releases/tag/desktop-latest
 on:
@@ -28,7 +28,7 @@ jobs:
       - name: Check the Qt Windows platform plugin is bundled
         shell: pwsh
         run: |
-          $f = Get-ChildItem -Recurse dist\StrategyLab -Filter qwindows.dll | Select-Object -First 1
+          $f = Get-ChildItem -Recurse dist\Titanium -Filter qwindows.dll | Select-Object -First 1
           if (-not $f) { Write-Error "qwindows.dll missing from the app folder"; exit 1 }
           $f.FullName
       - name: Build installer
@@ -43,40 +43,47 @@ jobs:
       - name: Test portable exe
         shell: pwsh
         run: |
-          $env:STRATEGY_LAB_SELFTEST_OUT = "$PWD\portable.txt"
-          $p = Start-Process dist\StrategyLab.exe -ArgumentList "--self-test" -Wait -PassThru
+          $env:TITANIUM_SELFTEST_OUT = "$PWD\portable.txt"
+          $p = Start-Process dist\Titanium.exe -ArgumentList "--self-test" -Wait -PassThru
           Get-Content portable.txt; if ($p.ExitCode -ne 0) { exit 1 }
       - name: Test installer, standalone option
         shell: pwsh
         run: |
-          $p = Start-Process dist\StrategyLabSetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/TYPE=standalone","/DIR=C:\sl_standalone" -Wait -PassThru
+          $p = Start-Process dist\TitaniumSetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/TYPE=standalone","/DIR=C:\sl_standalone" -Wait -PassThru
           if ($p.ExitCode -ne 0) { exit 1 }
-          $env:STRATEGY_LAB_SELFTEST_OUT = "$PWD\standalone.txt"
-          $p = Start-Process C:\sl_standalone\StrategyLab\StrategyLab.exe -ArgumentList "--self-test" -Wait -PassThru
+          $env:TITANIUM_SELFTEST_OUT = "$PWD\standalone.txt"
+          $p = Start-Process C:\sl_standalone\Titanium\Titanium.exe -ArgumentList "--self-test" -Wait -PassThru
           Get-Content standalone.txt; if ($p.ExitCode -ne 0) { exit 1 }
       - name: Test installer, use-my-Python option
         shell: pwsh
         run: |
-          $p = Start-Process dist\StrategyLabSetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/TYPE=system","/DIR=C:\sl_system" -Wait -PassThru
+          $p = Start-Process dist\TitaniumSetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/TYPE=system","/DIR=C:\sl_system" -Wait -PassThru
           if (Test-Path C:\sl_system\install.log) { Get-Content C:\sl_system\install.log -Tail 5 }
           if ($p.ExitCode -ne 0) { exit 1 }
-          $env:STRATEGY_LAB_SELFTEST_OUT = "$PWD\system.txt"
+          $env:TITANIUM_SELFTEST_OUT = "$PWD\system.txt"
           $p = Start-Process C:\sl_system\.venv\Scripts\python.exe -ArgumentList "-m","honestbt.desktop","--self-test" -WorkingDirectory C:\sl_system -Wait -PassThru
           Get-Content system.txt; if ($p.ExitCode -ne 0) { exit 1 }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: StrategyLab-windows
+          name: Titanium-windows
           path: |
-            dist/StrategyLabSetup.exe
-            dist/StrategyLab.exe
+            dist/TitaniumSetup.exe
+            dist/Titanium.exe
       - name: Publish to the desktop-latest release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          TITLE="Titanium for Windows (latest)"
           gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest \
-            --title "Strategy Lab for Windows (latest)" \
-            --notes "StrategyLabSetup.exe: installer. Choose Standalone (own Python) or Use my installed Python. StrategyLab.exe: portable single file, no install. Windows may warn about an unknown publisher: click More info, then Run anyway. Rebuilt automatically from main."
-          gh release upload desktop-latest dist/StrategyLabSetup.exe dist/StrategyLab.exe --clobber
+            --title "$TITLE" \
+            --notes "TitaniumSetup.exe: installer. Choose Standalone (own Python) or Use my installed Python. Titanium.exe: portable single file, no install. Windows may warn about an unknown publisher: click More info, then Run anyway. Rebuilt automatically from main."
+          gh release upload desktop-latest dist/TitaniumSetup.exe dist/Titanium.exe --clobber
+          gh release edit desktop-latest --title "$TITLE" \
+            --notes "TitaniumSetup.exe: installer. Choose Standalone (own Python) or Use my installed Python. Titanium.exe: portable single file, no install. Windows may warn about an unknown publisher: click More info, then Run anyway. Rebuilt automatically from main."
+          # files from before the rename to Titanium
+          for old in StrategyLabSetup.exe StrategyLab.exe; do
+            gh release delete-asset desktop-latest "$old" --yes 2>/dev/null || true
+          done

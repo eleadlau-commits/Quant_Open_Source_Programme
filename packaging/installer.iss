@@ -1,7 +1,7 @@
-; Strategy Lab Windows installer (Inno Setup 6).
+; Titanium Windows installer (Inno Setup 6).
 ; Built by .github/workflows/desktop-build.yml:
-;   python packaging/build_exe.py --onedir      (bundled-Python app -> dist\StrategyLab\)
-;   iscc packaging\installer.iss                (-> dist\StrategyLabSetup.exe)
+;   python packaging/build_exe.py --onedir      (bundled-Python app -> dist\Titanium\)
+;   iscc packaging\installer.iss                (-> dist\TitaniumSetup.exe)
 ;
 ; Two install types:
 ;   standalone : copies the bundled app (own Python inside, nothing else needed)
@@ -13,51 +13,63 @@
 
 [Setup]
 AppId={{4D750ED1-820D-49F6-B553-ABE0739B505B}
-AppName=Strategy Lab
+AppName=Titanium
 AppVersion={#MyAppVersion}
 AppPublisher=Quant Open Source Programme
-DefaultDirName={localappdata}\Programs\Strategy Lab
-DefaultGroupName=Strategy Lab
+DefaultDirName={localappdata}\Programs\Titanium
+DefaultGroupName=Titanium
+; The app used to be called Strategy Lab (same AppId, so this upgrades it in place).
+UsePreviousGroup=no
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=StrategyLabSetup
+OutputBaseFilename=TitaniumSetup
+SetupIconFile=assets\titanium.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\StrategyLab\StrategyLab.exe
+UninstallDisplayIcon={app}\titanium.ico
 
 [Types]
 Name: "standalone"; Description: "Standalone: includes its own Python (bigger, nothing else needed)"
 Name: "system"; Description: "Use my installed Python 3.11+ (smaller; sets up a private environment with pip)"
 
 [Components]
-Name: "bundled"; Description: "Strategy Lab with bundled Python"; Types: standalone; Flags: exclusive
-Name: "source"; Description: "Strategy Lab using your installed Python"; Types: system; Flags: exclusive
+Name: "bundled"; Description: "Titanium with bundled Python"; Types: standalone; Flags: exclusive
+Name: "source"; Description: "Titanium using your installed Python"; Types: system; Flags: exclusive
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Files]
 ; standalone
-Source: "..\dist\StrategyLab\*"; DestDir: "{app}\StrategyLab"; Components: bundled; Flags: recursesubdirs ignoreversion
+Source: "..\dist\Titanium\*"; DestDir: "{app}\Titanium"; Components: bundled; Flags: recursesubdirs ignoreversion
 ; use-my-Python: the source tree
 Source: "..\honestbt\*"; DestDir: "{app}\honestbt"; Components: source; Excludes: "__pycache__,*.pyc"; Flags: recursesubdirs ignoreversion
 Source: "..\configs\*"; DestDir: "{app}\configs"; Components: source; Flags: recursesubdirs ignoreversion
 Source: "..\pyproject.toml"; DestDir: "{app}"; Components: source; Flags: ignoreversion
+Source: "assets\titanium.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Strategy Lab"; Filename: "{app}\StrategyLab\StrategyLab.exe"; Components: bundled
-Name: "{autodesktop}\Strategy Lab"; Filename: "{app}\StrategyLab\StrategyLab.exe"; Components: bundled; Tasks: desktopicon
-Name: "{group}\Strategy Lab"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; Components: source
-Name: "{autodesktop}\Strategy Lab"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; Components: source; Tasks: desktopicon
-Name: "{group}\Uninstall Strategy Lab"; Filename: "{uninstallexe}"
+Name: "{group}\Titanium"; Filename: "{app}\Titanium\Titanium.exe"; Components: bundled
+Name: "{autodesktop}\Titanium"; Filename: "{app}\Titanium\Titanium.exe"; Components: bundled; Tasks: desktopicon
+Name: "{group}\Titanium"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; IconFilename: "{app}\titanium.ico"; Components: source
+Name: "{autodesktop}\Titanium"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; IconFilename: "{app}\titanium.ico"; Components: source; Tasks: desktopicon
+Name: "{group}\Uninstall Titanium"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\StrategyLab\StrategyLab.exe"; Description: "Open Strategy Lab"; Components: bundled; Flags: nowait postinstall skipifsilent
-Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; Description: "Open Strategy Lab"; Components: source; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Titanium\Titanium.exe"; Description: "Open Titanium"; Components: bundled; Flags: nowait postinstall skipifsilent
+Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; Description: "Open Titanium"; Components: source; Flags: nowait postinstall skipifsilent
+
+[InstallDelete]
+; leftovers from when the app was called Strategy Lab
+Type: filesandordirs; Name: "{app}\StrategyLab"
+Type: files; Name: "{userprograms}\Strategy Lab\Strategy Lab.lnk"
+Type: files; Name: "{userprograms}\Strategy Lab\Uninstall Strategy Lab.lnk"
+Type: dirifempty; Name: "{userprograms}\Strategy Lab"
+Type: files; Name: "{autodesktop}\Strategy Lab.lnk"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\.venv"

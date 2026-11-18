@@ -1,10 +1,10 @@
-"""Build a single-file Strategy Lab executable with PyInstaller.
+"""Build a single-file Titanium executable with PyInstaller.
 
     pip install -e ".[desktop]" pyinstaller
-    python packaging/build_exe.py            # -> dist/StrategyLab(.exe), one portable file
-    python packaging/build_exe.py --onedir   # -> dist/StrategyLab/ folder (used by the installer)
+    python packaging/build_exe.py            # -> dist/Titanium(.exe), one portable file
+    python packaging/build_exe.py --onedir   # -> dist/Titanium/ folder (used by the installer)
 
-Builds for the OS it runs on: run it on Windows to get StrategyLab.exe.
+Builds for the OS it runs on: run it on Windows to get Titanium.exe.
 GitHub Actions does this automatically (.github/workflows/desktop-build.yml).
 """
 import os
@@ -22,8 +22,9 @@ from honestbt.plugins import ALLOWED_IMPORTS  # noqa: E402
 
 sep = ";" if os.name == "nt" else ":"
 args = [
-    str(ROOT / "packaging" / "strategy_lab.py"),
-    "--name", "StrategyLab",
+    str(ROOT / "packaging" / "titanium_main.py"),
+    "--name", "Titanium",
+    "--icon", str(ROOT / "packaging" / "assets" / "titanium.ico"),
     "--onedir" if onedir else "--onefile",
     "--windowed",
     "--noconfirm",
@@ -33,6 +34,8 @@ args = [
     "--collect-submodules", "honestbt",
     # Plugin folders are read from disk at start-up, so ship them as files.
     "--add-data", f"{ROOT / 'honestbt' / 'plugins' / 'builtin'}{sep}honestbt/plugins/builtin",
+    # window icon
+    "--add-data", f"{ROOT / 'honestbt' / 'desktop' / 'assets'}{sep}honestbt/desktop/assets",
     # not needed by the desktop app; keeps the file smaller
     "--exclude-module", "pyarrow",
     "--exclude-module", "fastapi",

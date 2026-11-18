@@ -17,13 +17,14 @@ desktop = ["PySide6-Essentials>=6.6"]
 dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110"]
 
 [project.gui-scripts]
-strategy-lab = "honestbt.desktop.app:main"
+titanium = "honestbt.desktop.app:main"
 
 [tool.setuptools.packages.find]
 include = ["honestbt*"]
 
 [tool.setuptools.package-data]
 # plugin folders are read from disk, not imported as packages
+"honestbt.desktop" = ["assets/*.png"]
 "honestbt.plugins" = ["builtin/*/*.json", "builtin/*/*.py", "builtin/*/*.md", "builtin/*/suites/*.json",
                       "builtin/*/presets/*.json", "builtin/*/tests/*.py"]
 
