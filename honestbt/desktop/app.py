@@ -49,7 +49,28 @@ def _find_root() -> Path:
 ROOT = _find_root()
 CONFIGS = ROOT / "configs"
 USER_DIR = app_dir()  # ~/Documents/Titanium: where your own strategy files are saved
-ICON = Path(__file__).resolve().parent / "assets" / "titanium.png"
+ICON_DIR = Path(__file__).resolve().parent / "assets"
+APP_ID = "QuantOpenSource.Titanium"  # Windows taskbar grouping; matches the installer shortcuts
+
+
+def app_icon() -> QIcon:
+    """The Titanium logo at every size it was drawn for, so the title bar (16 px)
+    and taskbar (24-48 px) get sharp pixels instead of a scaled-down 256 px image."""
+    icon = QIcon()
+    for f in sorted(ICON_DIR.glob("titanium-*.png")):
+        icon.addFile(str(f))
+    return icon
+
+
+def _set_windows_app_id() -> None:
+    """Without this, Windows groups the window under python(w).exe and shows the
+    Python logo in the taskbar when running from source or the use-my-Python install."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        except Exception:
+            pass
 PASS, FAIL, NA = QColor("#1f8a4c"), QColor("#c0392b"), QColor("#8a8a84")
 DISCLAIMER = "Passing these tests means a result survived them. It is not evidence a strategy will make money. Not financial advice."
 
@@ -551,18 +572,22 @@ def self_test(app: QApplication, win: MainWindow) -> int:
         time.sleep(0.05)
     app.processEvents()
     off = [f"{s.id}: {s.reason}" for s in plugin_statuses() if s.source == "builtin" and s.state != "on"]
-    ok = win.sweep_table.rowCount() > 0 and "tests" in win.summary.text() and not off
+    # the window icon must load in every build (frozen exe, installer, source)
+    sizes = sorted(s.width() for s in app.windowIcon().availableSizes())
+    icon_ok = 16 in sizes and 256 in sizes and not win.windowIcon().isNull()
+    ok = win.sweep_table.rowCount() > 0 and "tests" in win.summary.text() and not off and icon_ok
     out = Path(os.environ.get("TITANIUM_SELFTEST_OUT", "titanium_selftest.txt"))
-    out.write_text(("OK " if ok else "FAIL ") + win.summary.text() + "".join(f"\nplugin off: {x}" for x in off))
+    out.write_text(("OK " if ok else "FAIL ") + win.summary.text() + f"\nwindow icon sizes: {sizes or 'MISSING'}"
+                   + "".join(f"\nplugin off: {x}" for x in off))
     return 0 if ok else 1
 
 
 def main(argv=None, on_shown=None):
     argv = sys.argv if argv is None else argv
+    _set_windows_app_id()
     app = QApplication(argv)
     app.setApplicationName("Titanium")
-    if ICON.exists():
-        app.setWindowIcon(QIcon(str(ICON)))
+    app.setWindowIcon(app_icon())
     win = MainWindow()
     win.show()  # shown in self-test too, so CI exercises the real window system
     if on_shown:

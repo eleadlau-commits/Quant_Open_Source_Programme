@@ -53,10 +53,10 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Titanium"; Filename: "{app}\Titanium\Titanium.exe"; Components: bundled
-Name: "{autodesktop}\Titanium"; Filename: "{app}\Titanium\Titanium.exe"; Components: bundled; Tasks: desktopicon
-Name: "{group}\Titanium"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; IconFilename: "{app}\titanium.ico"; Components: source
-Name: "{autodesktop}\Titanium"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; IconFilename: "{app}\titanium.ico"; Components: source; Tasks: desktopicon
+Name: "{group}\Titanium"; Filename: "{app}\Titanium\Titanium.exe"; AppUserModelID: "QuantOpenSource.Titanium"; Components: bundled
+Name: "{autodesktop}\Titanium"; Filename: "{app}\Titanium\Titanium.exe"; AppUserModelID: "QuantOpenSource.Titanium"; Components: bundled; Tasks: desktopicon
+Name: "{group}\Titanium"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; IconFilename: "{app}\titanium.ico"; AppUserModelID: "QuantOpenSource.Titanium"; Components: source
+Name: "{autodesktop}\Titanium"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-m honestbt.desktop"; WorkingDir: "{app}"; IconFilename: "{app}\titanium.ico"; AppUserModelID: "QuantOpenSource.Titanium"; Components: source; Tasks: desktopicon
 Name: "{group}\Uninstall Titanium"; Filename: "{uninstallexe}"
 
 [Run]

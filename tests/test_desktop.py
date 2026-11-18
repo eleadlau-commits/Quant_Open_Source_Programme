@@ -249,3 +249,10 @@ def test_patch_bay_wires_by_dragging_and_moves_boxes():
     # Ctrl+Z in the editor undoes the last patch-bay edit
     w.editor.undo()
     assert "patchbay_layout" not in json.loads(w.editor.toPlainText())
+
+
+def test_app_icon_has_every_size():
+    from honestbt.desktop.app import app_icon
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    sizes = {s.width() for s in app_icon().availableSizes()}
+    assert {16, 24, 32, 48, 64, 128, 256} <= sizes
