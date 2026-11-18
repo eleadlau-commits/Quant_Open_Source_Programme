@@ -1,7 +1,7 @@
 """Entry script for the PyInstaller build (absolute import, no package context).
 
 A windowed exe has no console, so any startup error would vanish silently.
-Here every crash is written to Documents/Strategy Lab/strategy_lab.log and
+Here every crash is written to Documents/Titanium/titanium.log and
 shown in a plain Windows message box (via ctypes, so it works even if Qt
 itself failed to load).
 """
@@ -11,9 +11,13 @@ import sys
 import traceback
 from pathlib import Path
 
-LOG_DIR = Path.home() / "Documents" / "Strategy Lab"
+try:
+    from honestbt.paths import app_dir  # tiny module, no heavy imports
+    LOG_DIR = app_dir()
+except Exception:
+    LOG_DIR = Path.home() / "Documents" / "Titanium"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
-LOG = LOG_DIR / "strategy_lab.log"
+LOG = LOG_DIR / "titanium.log"
 _log = open(LOG, "w", encoding="utf-8", buffering=1)
 faulthandler.enable(_log)  # hard crashes (segfaults in Qt) land here too
 if sys.stdout is None:
@@ -38,14 +42,14 @@ def _fatal(exc_type, exc, tb):
     if os.name == "nt":
         import ctypes
         ctypes.windll.user32.MessageBoxW(
-            None, f"Strategy Lab could not start.\n\n{exc}\n\nDetails were saved to:\n{LOG}", "Strategy Lab", 0x10)
+            None, f"Titanium could not start.\n\n{exc}\n\nDetails were saved to:\n{LOG}", "Titanium", 0x10)
 
 
 sys.excepthook = _fatal
 
 if __name__ == "__main__":
     try:
-        _log.write(f"Starting Strategy Lab, Python {sys.version}, frozen={getattr(sys, 'frozen', False)}\n")
+        _log.write(f"Starting Titanium, Python {sys.version}, frozen={getattr(sys, 'frozen', False)}\n")
         from honestbt.desktop.app import main
         code = main(on_shown=_close_splash)
     except SystemExit:

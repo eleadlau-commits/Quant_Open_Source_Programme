@@ -1,6 +1,9 @@
-# Quant Open Source Programme: `honestbt`
+<img src="packaging/assets/titanium-512.png" alt="Titanium logo" width="96" align="right">
 
-An open, pluggable backtesting core whose main job is to **judge** retail
+# Titanium
+
+Titanium is the desktop app of the Quant Open Source Programme, built on the
+`honestbt` package: an open, pluggable backtesting core whose main job is to **judge** retail
 trading strategies honestly. Instead of one flattering equity curve, it runs a
 whole *family* of variants and puts the best one through tests designed to
 catch luck, overfitting, look-ahead and unrealistic costs.
@@ -14,19 +17,20 @@ catch luck, overfitting, look-ahead and unrealistic costs.
 
 **Windows:** from the
 [desktop-latest release](https://github.com/eleadlau-commits/Quant_Open_Source_Programme/releases/tag/desktop-latest)
-download `StrategyLabSetup.exe` (installer: pick *Standalone* or *Use my
-installed Python*) or `StrategyLab.exe` (portable single file, no install). It's unsigned, so Windows SmartScreen may warn: click
+download `TitaniumSetup.exe` (installer: pick *Standalone* or *Use my
+installed Python*) or `Titanium.exe` (portable single file, no install). It's unsigned, so Windows SmartScreen may warn: click
 *More info → Run anyway*. Your own strategy files are saved in
-`Documents/Strategy Lab`.
+`Documents/Titanium` (an old `Documents/Strategy Lab` folder is renamed
+automatically the first time Titanium starts).
 
 **From source (any OS).** Install Python 3.11+ from python.org, then
-double-click `Strategy Lab.bat` (Windows) or `Strategy Lab.command` (Mac).
+double-click `Titanium.bat` (Windows) or `Titanium.command` (Mac).
 The first launch sets up a private environment in `.venv` (a few minutes);
 after that it opens straight away. Or from a terminal:
 
 ```bash
 pip install -e ".[desktop]"
-strategy-lab                            # or: python -m honestbt.desktop
+titanium                                # or: python -m honestbt.desktop
 ```
 
 **Developers / browser UI:**
@@ -93,7 +97,7 @@ honestbt/plugins/builtin/bootstrap/
   everything it registered is removed. A plugin may import only
   `honestbt.sdk` (the plugin API), so plugins never reach into each other.
   The tests remove every built-in folder in turn and check the rest load.
-* **Your own plugins** go in `~/Documents/Strategy Lab/plugins/<id>/` (or
+* **Your own plugins** go in `~/Documents/Titanium/plugins/<id>/` (or
   `$HONESTBT_PLUGIN_DIR`). They load the same way as the built-in ones.
 * **Packs without code.** A folder with `"main": null` can ship only test
   suites (`"evaluators": [{"$suite": "honest-stocks"}]`) or only presets

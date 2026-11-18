@@ -19,7 +19,7 @@ A plugin folder looks like this::
      "requires": ["exit-signals"]}              # ids of plugin folders it needs
 
 Folders are read from two places: the built-in ones in ``honestbt/plugins/builtin``
-and your own in the user plugin folder (``~/Documents/Strategy Lab/plugins``, or
+and your own in the user plugin folder (``~/Documents/Titanium/plugins``, or
 ``$HONESTBT_PLUGIN_DIR``). What keeps it safe to remove any folder:
 
 * a plugin whose ``requires`` are missing or off is left off, with the reason;
@@ -47,6 +47,7 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 from .. import registry
+from ..paths import app_dir
 
 BUILTIN_DIR = Path(__file__).resolve().parent / "builtin"
 ID = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -95,7 +96,7 @@ _PRESETS: list[dict] = []  # {"name", "plugin", "path"}
 def user_dir() -> Path:
     """Where your own plugin folders live (and the on/off settings)."""
     env = os.environ.get("HONESTBT_PLUGIN_DIR")
-    return Path(env) if env else Path.home() / "Documents" / "Strategy Lab" / "plugins"
+    return Path(env) if env else app_dir() / "plugins"
 
 
 def _settings_path() -> Path:
