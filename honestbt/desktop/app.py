@@ -8,6 +8,7 @@ server and no browser.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -25,8 +26,10 @@ from ..registry import catalog, load_plugins
 from ..runner import run_config
 from .widgets import EquityChart, PatchBayView
 
-ROOT = Path(__file__).resolve().parents[2]
+# In a PyInstaller build, bundled files live under sys._MEIPASS.
+ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
 CONFIGS = ROOT / "configs"
+USER_DIR = Path.home() / "Documents" / "Strategy Lab"  # where your own strategy files are saved
 PASS, FAIL, NA = QColor("#1f8a4c"), QColor("#c0392b"), QColor("#8a8a84")
 DISCLAIMER = "Passing these tests means a result survived them. It is not evidence a strategy will make money. Not financial advice."
 
@@ -81,6 +84,8 @@ class MainWindow(QMainWindow):
         self.preset = QComboBox()
         for p in sorted(CONFIGS.glob("*.json")):
             self.preset.addItem(p.stem, str(p))
+        for p in sorted(USER_DIR.glob("*.json")) if USER_DIR.exists() else []:
+            self.preset.addItem(f"{p.stem} (mine)", str(p))
         self.preset.currentIndexChanged.connect(self.load_preset)
         self.run_btn = QPushButton("Run")
         self.run_btn.setDefault(True)
@@ -224,7 +229,7 @@ class MainWindow(QMainWindow):
         self.graph.set_config(cfg)
 
     def open_file(self):
-        fn, _ = QFileDialog.getOpenFileName(self, "Open settings", str(CONFIGS), "JSON (*.json)")
+        fn, _ = QFileDialog.getOpenFileName(self, "Open settings", str(USER_DIR if USER_DIR.exists() else CONFIGS), "JSON (*.json)")
         if fn:
             self.load_path(Path(fn))
 
@@ -232,7 +237,8 @@ class MainWindow(QMainWindow):
         cfg = self.config()
         if cfg is None:
             return
-        fn, _ = QFileDialog.getSaveFileName(self, "Save settings", str(CONFIGS / "my_strategy.json"), "JSON (*.json)")
+        USER_DIR.mkdir(parents=True, exist_ok=True)
+        fn, _ = QFileDialog.getSaveFileName(self, "Save settings", str(USER_DIR / "my_strategy.json"), "JSON (*.json)")
         if fn:
             Path(fn).write_text(json.dumps(cfg, indent=2))
             self.statusBar().showMessage(f"Saved {fn}", 5000)
@@ -333,10 +339,28 @@ class MainWindow(QMainWindow):
         t.setSortingEnabled(True)
 
 
+def self_test(app: QApplication, win: MainWindow) -> int:
+    """Run the first preset headlessly and exit 0 if results appear (used by CI on the built exe)."""
+    import time
+    win.run()
+    t0 = time.time()
+    while win._thread is not None and time.time() - t0 < 300:
+        app.processEvents()
+        time.sleep(0.05)
+    app.processEvents()
+    ok = win.sweep_table.rowCount() > 0 and "tests" in win.summary.text()
+    out = Path(os.environ.get("STRATEGY_LAB_SELFTEST_OUT", "strategy_lab_selftest.txt"))
+    out.write_text(("OK " if ok else "FAIL ") + win.summary.text())
+    return 0 if ok else 1
+
+
 def main(argv=None):
-    app = QApplication(sys.argv if argv is None else argv)
+    argv = sys.argv if argv is None else argv
+    app = QApplication(argv)
     app.setApplicationName("Strategy Lab")
     win = MainWindow()
+    if "--self-test" in argv:
+        return self_test(app, win)
     win.show()
     return app.exec()
 

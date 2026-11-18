@@ -1,0 +1,43 @@
+name: desktop-build
+# Builds StrategyLab.exe on Windows. On pushes to main it also publishes it on
+# the "desktop-latest" release, so there is always one download link:
+# https://github.com/<owner>/<repo>/releases/tag/desktop-latest
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[desktop]" pyinstaller
+      - run: python packaging/build_exe.py
+      - name: Self-test the built exe
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $p = Start-Process -FilePath dist\StrategyLab.exe -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content strategy_lab_selftest.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StrategyLab-windows
+          path: dist/StrategyLab.exe
+      - name: Publish to the desktop-latest release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest \
+            --title "Strategy Lab for Windows (latest)" \
+            --notes "Download StrategyLab.exe and double-click it. Windows may warn that the app is from an unknown publisher: click More info, then Run anyway. Rebuilt automatically from main."
+          gh release upload desktop-latest dist/StrategyLab.exe --clobber
