@@ -160,6 +160,43 @@ functions). Example (`configs/monday_gap_top5.json`):
           "mappings.smooth_from_vol.params.slope": [0, 20, 40]}
 ```
 
+![patch bay](docs/patchbay.png)
+
+**Building in the desktop app.** The patch bay is a node editor over the
+JSON, so you don't have to type it by hand (the JSON stays the source of
+truth; every edit rewrites it, and Ctrl+Z in the editor undoes one):
+
+* **New…** starts a strategy from a strategy plugin (a copy of the shipped
+  example that uses it, so it runs straight away).
+* **Boxes** are features (blue), mappings (yellow), the strategy (green), its
+  exit (purple), the data source and the tests. Drag them anywhere; positions
+  are saved in the file under `patchbay_layout`, which the backtest ignores.
+* **Ports and cables.** Drag from a feature's or mapping's ● output onto a
+  mapping's input or onto a strategy/exit setting:
+  feature → mapping writes `"input": "gap"`, mapping → number setting writes
+  `{"$map": "..."}`, feature → number setting writes `{"$feature": "..."}`,
+  feature → ranking/feature setting writes its name. Wiring that makes no
+  sense (a mapping into a ranking slot, a loop) is refused with a reason.
+  Drag a cable off its input to unplug it (the setting goes back to its default).
+* **Double-click** a setting to type a value; **right-click** it to unplug,
+  edit, or *Sweep* it (adds a sweep axis around its value). Right-click
+  empty space to add features, mappings, exits and tests; right-click a box
+  to swap the strategy, exit or data, or remove it (or select it and press
+  Delete). *Tidy layout* puts the boxes back in columns.
+* Drag a plugin from the **Plugin catalogue** onto the patch bay (or
+  double-click it) to add it.
+* **Hover** over anything (a word in the settings, a patch-bay box, a button,
+  a test) and the help line at the bottom of the window explains it.
+* **Presets** are ready-made strategy files to start from: the examples in
+  `configs/`, strategy families shipped in plugin packs (shown with the
+  pack's name) and your own saved files (shown as "mine").
+* In **Verdicts**, every test is its own block: drag blocks to arrange them
+  and fold the ones you've read. The layout is remembered.
+
+The patch bay recombines existing pieces. Genuinely new trading logic (a new
+kind of entry rule) is a strategy plugin:
+`python -m honestbt.plugins new my-rules --kind strategy`.
+
 ## Guiding strategy: Monday top-5 gappers
 
 Every week on the first trading day at 09:30, using only pre-market data:

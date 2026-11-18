@@ -2,119 +2,72 @@
 from __future__ import annotations
 
 import math
+import re
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPalette, QPen
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
+from PySide6.QtWidgets import QPlainTextEdit, QToolTip, QWidget
+
+from .help import explain
+
+_WORD = re.compile(r"[\w$.\-]")
 
 
 def _is_dark(widget: QWidget) -> bool:
     return widget.palette().color(QPalette.Window).lightness() < 128
 
 
-class PatchBayView(QWidget):
-    """Draws features -> mappings -> strategy, with a cable for every reference."""
+class HoverEditor(QPlainTextEdit):
+    """Settings editor that explains the word under the mouse (tooltip and the help line)."""
+
+    hovered = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setMouseTracking(True)
         self.cfg: dict = {}
-        self.setMinimumHeight(240)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._last = None
 
-    def set_config(self, cfg: dict) -> None:
-        self.cfg = cfg or {}
-        self.update()
+    def word_at(self, pos) -> str:
+        cur = self.cursorForPosition(pos)
+        text, i = cur.block().text(), cur.positionInBlock()
+        if not text or i > len(text):
+            return ""
+        a = b = i
+        while a > 0 and _WORD.match(text[a - 1]):
+            a -= 1
+        while b < len(text) and _WORD.match(text[b]):
+            b += 1
+        return text[a:b]
 
-    @staticmethod
-    def _refs(obj, out):
-        if isinstance(obj, dict):
-            if set(obj) == {"$map"}:
-                out.append(("m", obj["$map"]))
-            elif set(obj) == {"$feature"}:
-                out.append(("f", obj["$feature"]))
-            else:
-                for k, v in obj.items():
-                    if k == "atr_feature" and isinstance(v, str):
-                        out.append(("f", v))
-                    else:
-                        PatchBayView._refs(v, out)
-        elif isinstance(obj, list):
-            for v in obj:
-                PatchBayView._refs(v, out)
-        return out
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        dark = _is_dark(self)
-        ink = QColor("#ecece8" if dark else "#1d1d1b")
-        line = QColor("#6b6b66" if dark else "#9a9a94")
-        fills = {"f": QColor("#1f2a44" if dark else "#e8f0ff"),
-                 "m": QColor("#3a2f17" if dark else "#fff3dc"),
-                 "s": QColor("#183324" if dark else "#e9f7ee")}
-        W, H = self.width(), self.height()
-        feats = list((self.cfg.get("features") or {}).keys())
-        maps = list((self.cfg.get("mappings") or {}).keys())
-        strat = self.cfg.get("strategy") or {}
-        sp = strat.get("params") or {}
-        bw, bh = min(170, W * 0.28), 26
-        cols = [12, W * 0.36, W - bw - 12]
-        pos = {}
-        for col, names, key in ((0, feats, "f"), (1, maps, "m")):
-            gap = H / (len(names) + 1) if names else H
-            for i, n in enumerate(names):
-                pos[(key, n)] = QRectF(cols[col], gap * (i + 1) - bh / 2, bw, bh)
-        srect = QRectF(cols[2], H / 2 - 48, bw, 96)
-
-        def cable(a: QRectF, b: QRectF):
-            path = QPainterPath(QPointF(a.right(), a.center().y()))
-            x1, y1, x2, y2 = a.right(), a.center().y(), b.left(), b.center().y()
-            path.cubicTo(x1 + 50, y1, x2 - 50, y2, x2, y2)
-            p.drawPath(path)
-
-        p.setPen(QPen(line, 1.4))
-        p.setBrush(Qt.NoBrush)
-        for m in maps:
-            src = (self.cfg["mappings"][m] or {}).get("input")
-            a = pos.get(("f", src)) or pos.get(("m", src))
-            if a:
-                cable(a, pos[("m", m)])
-        named = [sp.get(k) for k in ("rank_by", "price_feature", "liquidity_feature")]
-        for f in [n for n in named if n] :
-            if ("f", f) in pos:
-                cable(pos[("f", f)], srect)
-        for kind, name in self._refs(sp, []):
-            if (kind, name) in pos:
-                cable(pos[(kind, name)], srect)
-
-        p.setFont(QFont(self.font().family(), 9))
-        for (kind, name), r in pos.items():
-            p.setPen(QPen(line, 1))
-            p.setBrush(QBrush(fills[kind]))
-            p.drawRoundedRect(r, 6, 6)
-            p.setPen(ink)
-            label = name if kind == "f" else f"{name} ({self.cfg['mappings'][name].get('plugin')})"
-            p.drawText(r.adjusted(8, 0, -4, 0), Qt.AlignVCenter | Qt.AlignLeft, label)
-        p.setPen(QPen(line, 1))
-        p.setBrush(QBrush(fills["s"]))
-        p.drawRoundedRect(srect, 6, 6)
-        p.setPen(ink)
-        exit_ = (sp.get("exit") or {}).get("plugin", "")
-        if strat.get("plugin") == "opening_range_breakout":
-            filt = (f"filter: {sp.get('trend_timeframe', 15)}m EMA{sp.get('ema_fast', 50)}/{sp.get('ema_slow', 200)}"
-                    if sp.get("trend_filter") else "filter: off")
-            lines = [strat.get("plugin"), f"box {sp.get('box_start', '09:30')}-{sp.get('box_end', '09:45')}, "
-                     f"1R/{sp.get('target_r', 3):g}R", filt,
-                     f"sweep axes: {len(self.cfg.get('sweep') or {})}"]
+    def mouseMoveEvent(self, e):
+        super().mouseMoveEvent(e)
+        word = self.word_at(e.position().toPoint())
+        if word == self._last:
+            return
+        self._last = word
+        tip = explain(word, self.cfg)
+        if tip:
+            QToolTip.showText(e.globalPosition().toPoint(), tip, self)
         else:
-            lines = [strat.get("plugin", "strategy"), f"top {sp.get('top_n', '?')} by {sp.get('rank_by', '?')}",
-                     f"exit: {exit_}", f"sweep axes: {len(self.cfg.get('sweep') or {})}"]
-        for i, t in enumerate(lines):
-            f = p.font()
-            f.setBold(i == 0)
-            p.setFont(f)
-            p.drawText(QRectF(srect.left() + 8, srect.top() + 6 + i * 21, bw - 12, 20), Qt.AlignVCenter, t)
-        p.end()
+            QToolTip.hideText()
+        self.hovered.emit(tip or "")
+
+    def leaveEvent(self, e):
+        self._last = None
+        self.hovered.emit("")
+        super().leaveEvent(e)
+
+    def select_key(self, key: str) -> bool:
+        """Put the cursor on the first `"key":` in the text and scroll to it."""
+        doc = self.document()
+        found = doc.find(f'"{key}"')
+        if found.isNull():
+            return False
+        self.setTextCursor(found)
+        self.centerCursor()
+        self.setFocus()
+        return True
 
 
 class EquityChart(QWidget):
