@@ -22,5 +22,11 @@ strategy-lab = "honestbt.desktop.app:main"
 [tool.setuptools.packages.find]
 include = ["honestbt*"]
 
+[tool.setuptools.package-data]
+# plugin folders are read from disk, not imported as packages
+"honestbt.plugins" = ["builtin/*/*.json", "builtin/*/*.py", "builtin/*/*.md", "builtin/*/suites/*.json",
+                      "builtin/*/presets/*.json", "builtin/*/tests/*.py"]
+
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "honestbt/plugins/builtin"]
+addopts = "--import-mode=importlib"

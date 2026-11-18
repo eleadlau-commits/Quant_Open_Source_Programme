@@ -1,0 +1,17 @@
+{
+  "id": "weekly-topn",
+  "name": "Weekly top N",
+  "description": "Each week buy the top N names ranked by a feature at the open and hold until an exit signal or the week's close.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "strategy": [
+      "weekly_topn"
+    ]
+  },
+  "requires": [
+    "exit-signals"
+  ]
+}

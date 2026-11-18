@@ -1,0 +1,17 @@
+{
+  "id": "random-baseline",
+  "name": "Random baseline test",
+  "description": "Swaps the ranking (or direction) for random picks and checks the strategy beats them.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "evaluator": [
+      "random_baseline"
+    ]
+  },
+  "requires": [
+    "daily-features"
+  ]
+}

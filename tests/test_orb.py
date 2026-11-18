@@ -6,12 +6,15 @@ import pytest
 
 from honestbt import engine
 from honestbt.data import GuardedView, LookAheadError
-from honestbt.data.synthetic_futures import synthetic_futures
 from honestbt.engine import _bracket_exit
-from honestbt.features import htf_ema_spread, opening_range, resample_closes
+from honestbt.plugins import plugin_module
 from honestbt.patchbay import validate, with_overrides
 from honestbt.runner import run_config
 from honestbt.signals import Path
+
+synthetic_futures = plugin_module("synthetic-futures").synthetic_futures
+_intraday = plugin_module("intraday-features")
+htf_ema_spread, opening_range, resample_closes = _intraday.htf_ema_spread, _intraday.opening_range, _intraday.resample_closes
 
 from pathlib import Path as _P
 

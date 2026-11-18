@@ -4,6 +4,10 @@
     mappings   named patch cables    {"k_vol": {"plugin": "linear", "input": "vol20", "params": {...}}}
     strategy   one strategy node     {"plugin": "weekly_topn", "params": {...}}
     sweep      family axes           {"strategy.params.exit.params.k": [0.5, 1, 2]}
+    evaluators the tests             [{"plugin": "bootstrap"}, {"$suite": "honest-stocks"}]
+
+``{"$suite": name}`` in the evaluator list (or as the whole list) stands for a
+named test suite shipped in a plugin folder's ``suites/``.
 
 Anywhere inside strategy params you can write ``{"$map": "k_vol"}`` or
 ``{"$feature": "vol20"}``; it is resolved *per symbol at decision time* through
@@ -127,23 +131,57 @@ def expand_sweep(cfg: dict) -> list[tuple[dict, dict]]:
     return out
 
 
+def expand_evaluators(cfg: dict) -> list[dict]:
+    """The evaluator list with every ``{"$suite": name}`` replaced by that suite's evaluators."""
+    from .plugins import suite
+
+    evs = cfg.get("evaluators") or []
+    if isinstance(evs, dict):
+        evs = [evs]
+    out = []
+    for ev in evs:
+        if isinstance(ev, dict) and set(ev) == {"$suite"}:
+            try:
+                out.extend(suite(ev["$suite"]))
+            except KeyError as exc:
+                raise ConfigError(f"evaluators: {exc.args[0]}") from None
+        else:
+            out.append(ev)
+    return out
+
+
+def _unknown(where: str, kind: str, name) -> str:
+    from .plugins import why_missing
+
+    why = why_missing(kind, name) if isinstance(name, str) else None
+    return f"{where}: unknown {kind} plugin {name!r}" + (f" ({why})" if why else "")
+
+
 def validate(cfg: dict) -> list[str]:
     """Cheap static checks; returns a list of problems (empty = fine)."""
     problems = []
     for section, kind in (("features", "feature"), ("mappings", "mapping")):
         for name, spec in (cfg.get(section) or {}).items():
             if not has(kind, spec.get("plugin", "")):
-                problems.append(f"{section}.{name}: unknown {kind} plugin {spec.get('plugin')!r}")
+                problems.append(_unknown(f"{section}.{name}", kind, spec.get("plugin")))
     for name, spec in (cfg.get("mappings") or {}).items():
         src = spec.get("input")
         if src and src not in (cfg.get("mappings") or {}) and src not in (cfg.get("features") or {}) and not has("feature", src):
             problems.append(f"mappings.{name}: input {src!r} is not a feature or mapping")
     strat = cfg.get("strategy") or {}
     if not has("strategy", strat.get("plugin", "")):
-        problems.append(f"strategy: unknown plugin {strat.get('plugin')!r}")
-    for ev in cfg.get("evaluators") or []:
+        problems.append(_unknown("strategy", "strategy", strat.get("plugin")))
+    data = cfg.get("data") or {}
+    if data and not has("data", data.get("plugin", "")):
+        problems.append(_unknown("data", "data", data.get("plugin")))
+    try:
+        evaluators = expand_evaluators(cfg)
+    except ConfigError as exc:
+        problems.append(str(exc))
+        evaluators = []
+    for ev in evaluators:
         if not has("evaluator", ev.get("plugin", "")):
-            problems.append(f"evaluators: unknown plugin {ev.get('plugin')!r}")
+            problems.append(_unknown("evaluators", "evaluator", ev.get("plugin")))
     for path in cfg.get("sweep") or {}:
         if get_path(cfg, path, default=KeyError) is KeyError:
             problems.append(f"sweep: path {path!r} does not exist in the config")

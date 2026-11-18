@@ -22,8 +22,11 @@ from PySide6.QtWidgets import (
 )
 
 from ..patchbay import validate
+from ..plugins import presets as plugin_presets
+from ..plugins import statuses as plugin_statuses
 from ..registry import catalog, load_plugins
 from ..runner import run_config
+from .plugins_dialog import PluginsDialog
 from .widgets import EquityChart, PatchBayView
 
 def _find_root() -> Path:
@@ -92,10 +95,7 @@ class MainWindow(QMainWindow):
 
         # ---- toolbar row
         self.preset = QComboBox()
-        for p in sorted(CONFIGS.glob("*.json")):
-            self.preset.addItem(p.stem, str(p))
-        for p in sorted(USER_DIR.glob("*.json")) if USER_DIR.exists() else []:
-            self.preset.addItem(f"{p.stem} (mine)", str(p))
+        self.fill_presets()
         self.preset.currentIndexChanged.connect(self.load_preset)
         self.run_btn = QPushButton("Run")
         self.run_btn.setDefault(True)
@@ -104,11 +104,13 @@ class MainWindow(QMainWindow):
         open_btn.clicked.connect(self.open_file)
         save_btn = QPushButton("Save as…")
         save_btn.clicked.connect(self.save_file)
+        plugins_btn = QPushButton("Plugins…")
+        plugins_btn.clicked.connect(self.show_plugins)
         top = QHBoxLayout()
         title = QLabel("<b style='font-size:16px'>Strategy Lab</b>  <span style='color:gray'>honest backtests for strategy families</span>")
         top.addWidget(title)
         top.addStretch()
-        for w in (QLabel("Preset:"), self.preset, open_btn, save_btn, self.run_btn):
+        for w in (QLabel("Preset:"), self.preset, open_btn, save_btn, plugins_btn, self.run_btn):
             top.addWidget(w)
 
         # ---- left: patch bay
@@ -193,7 +195,30 @@ class MainWindow(QMainWindow):
             self.load_preset(0)
 
     # ---- config handling
+    def fill_presets(self):
+        self.preset.blockSignals(True)
+        self.preset.clear()
+        for p in sorted(CONFIGS.glob("*.json")):
+            self.preset.addItem(p.stem, str(p))
+        for p in plugin_presets():  # strategy families shipped in plugin folders
+            self.preset.addItem(f"{p['name']} ({p['plugin']})", p["path"])
+        for p in sorted(USER_DIR.glob("*.json")) if USER_DIR.exists() else []:
+            self.preset.addItem(f"{p.stem} (mine)", str(p))
+        self.preset.blockSignals(False)
+
+    def show_plugins(self):
+        dlg = PluginsDialog(self)
+        dlg.changed.connect(self.plugins_changed)
+        dlg.exec()
+
+    def plugins_changed(self):
+        self.fill_presets()
+        self.fill_catalogue()
+        self.on_edit()
+        self.statusBar().showMessage("Plugins reloaded.", 5000)
+
     def fill_catalogue(self):
+        self.catalogue.clear()
         for kind, items in catalog().items():
             if not items:
                 continue
@@ -381,9 +406,10 @@ def self_test(app: QApplication, win: MainWindow) -> int:
         app.processEvents()
         time.sleep(0.05)
     app.processEvents()
-    ok = win.sweep_table.rowCount() > 0 and "tests" in win.summary.text()
+    off = [f"{s.id}: {s.reason}" for s in plugin_statuses() if s.source == "builtin" and s.state != "on"]
+    ok = win.sweep_table.rowCount() > 0 and "tests" in win.summary.text() and not off
     out = Path(os.environ.get("STRATEGY_LAB_SELFTEST_OUT", "strategy_lab_selftest.txt"))
-    out.write_text(("OK " if ok else "FAIL ") + win.summary.text())
+    out.write_text(("OK " if ok else "FAIL ") + win.summary.text() + "".join(f"\nplugin off: {x}" for x in off))
     return 0 if ok else 1
 
 

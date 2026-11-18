@@ -1,0 +1,15 @@
+{
+  "id": "parquet-data",
+  "name": "Parquet data",
+  "description": "Reads real minute bars from a local Parquet cache, one file per symbol.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "data": [
+      "parquet"
+    ]
+  },
+  "requires": []
+}

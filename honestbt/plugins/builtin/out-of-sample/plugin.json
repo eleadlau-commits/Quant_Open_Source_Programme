@@ -1,0 +1,15 @@
+{
+  "id": "out-of-sample",
+  "name": "Out-of-sample test",
+  "description": "Picks the best variant on early history and scores it on later history it never saw.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "evaluator": [
+      "out_of_sample"
+    ]
+  },
+  "requires": []
+}

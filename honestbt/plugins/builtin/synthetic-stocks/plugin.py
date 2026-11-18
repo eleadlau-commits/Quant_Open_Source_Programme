@@ -15,8 +15,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ..registry import Param, register
-from .model import MarketData
+from honestbt.sdk import MarketData, Param, register
+
 
 PRE_START = 9 * 60  # first pre-market bar at 09:00 (keeps data small)
 OPEN = 9 * 60 + 30

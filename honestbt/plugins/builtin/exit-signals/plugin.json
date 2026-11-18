@@ -1,0 +1,20 @@
+{
+  "id": "exit-signals",
+  "name": "Exit signals",
+  "description": "When to leave a trade early: never, an ATR trailing stop, an EMA cross, Heikin-Ashi reversal, a time stop, or any of several.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "signal": [
+      "any_of",
+      "atr_trailing",
+      "ema_cross",
+      "heikin_ashi",
+      "never",
+      "time_stop"
+    ]
+  },
+  "requires": []
+}

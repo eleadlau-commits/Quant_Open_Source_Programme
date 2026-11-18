@@ -1,0 +1,17 @@
+{
+  "id": "benchmark",
+  "name": "Benchmark test",
+  "description": "Compares with buying the whole filtered universe for the same period.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "evaluator": [
+      "benchmark"
+    ]
+  },
+  "requires": [
+    "exit-signals"
+  ]
+}

@@ -11,8 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..registry import Param, register
-from .model import MarketData
+from honestbt.sdk import MarketData, Param, register
 
 
 @register("data", "parquet", params=[

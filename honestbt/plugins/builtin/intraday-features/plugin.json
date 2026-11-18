@@ -1,0 +1,16 @@
+{
+  "id": "intraday-features",
+  "name": "Intraday features",
+  "description": "The opening box (high, low or height between two clock times) and a higher-timeframe EMA trend spread.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "feature": [
+      "htf_ema_spread",
+      "opening_range"
+    ]
+  },
+  "requires": []
+}

@@ -1,0 +1,18 @@
+{
+  "id": "gap-families",
+  "name": "Gap strategy families",
+  "description": "Ready-made families of weekly gap strategies (presets with sweeps), tested with the honest-stocks suite.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": null,
+  "provides": {},
+  "requires": [
+    "weekly-topn",
+    "synthetic-stocks",
+    "daily-features",
+    "basic-mappings",
+    "exit-signals",
+    "honest-tests"
+  ]
+}

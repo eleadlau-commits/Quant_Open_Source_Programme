@@ -1,0 +1,15 @@
+{
+  "id": "synthetic-stocks",
+  "name": "Synthetic stocks",
+  "description": "Made-up US stock minute bars with no edge by default (and an optional planted gap edge), for development and for testing the tests.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "data": [
+      "synthetic"
+    ]
+  },
+  "requires": []
+}

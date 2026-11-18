@@ -1,0 +1,15 @@
+{
+  "id": "ablation",
+  "name": "Ablation test",
+  "description": "Removes one ingredient (e.g. a trend filter) and checks the version with it earns clearly more.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "evaluator": [
+      "ablation"
+    ]
+  },
+  "requires": []
+}

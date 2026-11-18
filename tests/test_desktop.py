@@ -6,6 +6,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+QtCore = pytest.importorskip("PySide6.QtCore")
 
 
 def test_window_runs_small_config():
@@ -50,3 +51,26 @@ def test_window_runs_orb_config():
     assert "ranked" in w.summary.text()
     assert w.trades_table.horizontalHeaderItem(7).text() == "R"
     assert len(w.chart.series) == 2
+
+
+def test_plugins_window_switches_a_plugin_off_and_on():
+    from honestbt import plugins
+    from honestbt.desktop.app import MainWindow
+    from honestbt.desktop.plugins_dialog import PluginsDialog
+    from honestbt.registry import has
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    w = MainWindow()
+    assert w.preset.findText("monday-gap-exit-family (gap-families)") >= 0
+    with plugins.isolated():
+        dlg = PluginsDialog(w)
+        dlg.changed.connect(w.plugins_changed)
+        row = next(i for i, s in enumerate(dlg.rows) if s.id == "bootstrap")
+        dlg.table.item(row, 0).setCheckState(QtCore.Qt.Unchecked)
+        app.processEvents()
+        assert not has("evaluator", "bootstrap")
+        assert any(s.id == "honest-tests" and s.state == "off" for s in dlg.rows)
+        assert w.preset.findText("monday-gap-exit-family (gap-families)") < 0  # needs the suites
+        row = next(i for i, s in enumerate(dlg.rows) if s.id == "bootstrap")
+        dlg.table.item(row, 0).setCheckState(QtCore.Qt.Checked)
+        assert has("evaluator", "bootstrap")
+    plugins.set_enabled("bootstrap", True)
