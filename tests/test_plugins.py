@@ -1,6 +1,5 @@
 """The plugin folders: each one independent, each one removable."""
 import json
-import sys
 import textwrap
 from pathlib import Path
 
@@ -17,26 +16,8 @@ ROOT = Path(__file__).resolve().parent.parent
 @pytest.fixture
 def isolated():
     """Load other sets of folders, then put the real registry back exactly as it was."""
-    saved = ({k: dict(v) for k, v in registry._REGISTRY.items()}, dict(plugins._STATUS),
-             dict(plugins._SUITES), list(plugins._PRESETS),
-             {n: m for n, m in sys.modules.items() if n.startswith(plugins.MODULE_PREFIX)})
-
-    def load(*dirs, off=()):
-        for items in registry._REGISTRY.values():
-            items.clear()
-        return plugins.load_all(dirs=list(dirs), off=set(off), include_pip=False)
-
-    yield load
-    reg, status, suites, presets, mods = saved
-    for k, v in reg.items():
-        registry._REGISTRY[k].clear()
-        registry._REGISTRY[k].update(v)
-    plugins._STATUS.clear(), plugins._STATUS.update(status)
-    plugins._SUITES.clear(), plugins._SUITES.update(suites)
-    plugins._PRESETS[:] = presets
-    for n in [n for n in sys.modules if n.startswith(plugins.MODULE_PREFIX)]:
-        del sys.modules[n]
-    sys.modules.update(mods)
+    with plugins.isolated() as load:
+        yield lambda *dirs, off=(): load(dirs, off=off)
 
 
 def write_plugin(base: Path, pid: str, code: str | None = None, **manifest) -> Path:
@@ -196,3 +177,73 @@ def test_missing_requirement_and_bad_manifest(isolated, tmp_path):
     status = isolated((tmp_path, "user"))
     assert status["lonely"].reason == "needs plugin 'not-here', which is not installed"
     assert "not valid JSON" in status["broken"].reason
+
+
+# ---- .tiplug files
+
+@pytest.fixture
+def user_folder(tmp_path, monkeypatch):
+    up = tmp_path / "user-plugins"
+    monkeypatch.setenv("HONESTBT_PLUGIN_DIR", str(up))
+    return up
+
+
+def test_new_pack_check_install_remove(user_folder, tmp_path):
+    from honestbt.plugins import pack as tiplug
+
+    for kind in ("evaluator", "feature", "strategy", "signal", "mapping", "suite", "preset"):
+        folder = tiplug.new(f"my-{kind}", kind, base=tmp_path / "src")
+        assert tiplug.check(folder).ok, (kind, tiplug.check(folder).text())
+    file = tiplug.pack(tmp_path / "src" / "my-evaluator", tmp_path)
+    assert file.name == "my-evaluator-0.1.0.tiplug"
+    rep = tiplug.install(file)
+    assert rep.ok, rep.text()
+    assert (user_folder / "my-evaluator" / "plugin.py").exists()
+    assert not tiplug.install(file).ok  # already there
+    assert tiplug.install(file, replace=True).ok
+    tiplug.remove("my-evaluator")
+    assert not (user_folder / "my-evaluator").exists()
+
+
+def test_install_refuses_failing_tests_bad_imports_and_builtin_ids(user_folder, tmp_path):
+    from honestbt.plugins import pack as tiplug
+
+    folder = tiplug.new("flaky", "evaluator", base=tmp_path)
+    (folder / "tests" / "test_flaky.py").write_text("def test_no():\n    assert 1 == 2\n")
+    rep = tiplug.install(folder)
+    assert not rep.ok and any("its own tests" in f for f in rep.failed)
+    assert not (user_folder / "flaky").exists()
+
+    sneaky = tiplug.new("sneaky", "feature", base=tmp_path)
+    (sneaky / "plugin.py").write_text("import os\n" + (sneaky / "plugin.py").read_text())
+    assert any("imports os" in f for f in tiplug.check(sneaky).failed)
+
+    clash = write_plugin(tmp_path / "x", "bootstrap", None)
+    assert any("built-in" in f for f in tiplug.check(clash).failed)
+    with pytest.raises(plugins.PluginProblem):
+        tiplug.remove("bootstrap")
+
+
+def test_unpack_refuses_files_outside_the_folder(tmp_path):
+    import zipfile
+
+    from honestbt.plugins import pack as tiplug
+
+    for name, entries in {"escape": ["evil/plugin.json", "../outside.txt"],
+                          "two": ["a/plugin.json", "b/plugin.json"]}.items():
+        bad = tmp_path / f"{name}.tiplug"
+        with zipfile.ZipFile(bad, "w") as z:
+            for e in entries:
+                z.writestr(e, "{}")
+        with pytest.raises(plugins.PluginProblem):
+            tiplug.unpack(bad, tmp_path / f"out-{name}")
+    assert not (tmp_path / "outside.txt").exists()
+    (tmp_path / "junk.tiplug").write_text("not a zip")
+    assert not tiplug.check(tmp_path / "junk.tiplug").ok
+
+
+def test_switching_off_is_remembered(user_folder):
+    plugins.set_enabled("bootstrap", False)
+    assert "bootstrap" in plugins.switched_off()
+    plugins.set_enabled("bootstrap", True)
+    assert "bootstrap" not in plugins.switched_off()

@@ -101,6 +101,22 @@ honestbt/plugins/builtin/bootstrap/
 * This keeps plugins tidy and independent. It is **not** a sandbox: Python
   plugin code can do anything Python can, so only add plugins you trust.
 
+**Sharing plugins as `.tiplug` files.** A `.tiplug` is one plugin folder
+zipped into one file. In the desktop app, **Plugins… → Import plugin…** checks
+it and adds it to your plugin folder. The window also lists every plugin with
+the reason any of them is off, and lets you switch plugins on or off. The
+same tools work from the command line:
+
+```
+python -m honestbt.plugins new my-test --kind evaluator   # also feature, strategy, signal, mapping, suite, preset
+python -m honestbt.plugins check path/to/my-test          # manifest, imports, loads, suites, presets, its tests
+python -m honestbt.plugins pack path/to/my-test           # -> my-test-0.1.0.tiplug
+python -m honestbt.plugins install my-test-0.1.0.tiplug
+python -m honestbt.plugins list
+```
+
+![Plugins window](docs/plugins.png)
+
 ### Honesty mechanisms built into the core
 
 * **Look-ahead guard.** Strategy, feature and mapping code only ever see a

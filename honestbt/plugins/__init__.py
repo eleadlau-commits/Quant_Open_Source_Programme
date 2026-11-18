@@ -409,3 +409,45 @@ def plugin_module(plugin_id: str):
         raise KeyError(f"plugin {plugin_id!r} is not loaded" + (f": {st.reason}" if st else ""))
     main = read_manifest(Path(st.folder))["main"]
     return sys.modules[f"{_module_name(plugin_id)}.{main[:-3]}"]
+
+
+def reload() -> list[PluginStatus]:
+    """Forget every plugin and load the folders again (after an import or an on/off switch)."""
+    registry.reset()
+    registry.load_plugins()
+    return statuses()
+
+
+class isolated:
+    """Load other sets of folders inside a ``with`` block, then put everything back as it was.
+
+        with isolated() as load:
+            status = load([(folder, "user")])
+    """
+
+    def __enter__(self):
+        registry.load_plugins()
+        self._saved = ({k: dict(v) for k, v in registry._REGISTRY.items()}, dict(_STATUS), dict(_SUITES),
+                       list(_PRESETS), {n: m for n, m in sys.modules.items() if n.startswith(MODULE_PREFIX)})
+
+        def load(dirs, off=(), include_pip=False):
+            for items in registry._REGISTRY.values():
+                items.clear()
+            return load_all(dirs=list(dirs), off=set(off), include_pip=include_pip)
+
+        return load
+
+    def __exit__(self, *exc):
+        reg, status, suites_, presets_, mods = self._saved
+        for k, v in reg.items():
+            registry._REGISTRY[k].clear()
+            registry._REGISTRY[k].update(v)
+        _STATUS.clear()
+        _STATUS.update(status)
+        _SUITES.clear()
+        _SUITES.update(suites_)
+        _PRESETS[:] = presets_
+        for n in [n for n in sys.modules if n.startswith(MODULE_PREFIX)]:
+            del sys.modules[n]
+        sys.modules.update(mods)
+        return False
