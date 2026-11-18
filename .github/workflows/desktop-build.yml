@@ -40,6 +40,10 @@ jobs:
           & $iscc packaging\installer.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+      - name: Check the Titanium icon is embedded at every size
+        run: |
+          pip install pefile
+          python packaging/check_icon.py dist/Titanium.exe dist/Titanium/Titanium.exe dist/TitaniumSetup.exe
       - name: Test portable exe
         shell: pwsh
         run: |
