@@ -2,6 +2,10 @@
 # macOS / Linux: double-click to open Strategy Lab.
 # The first run sets up a private Python environment in .venv (takes a few minutes).
 cd "$(dirname "$0")" || exit 1
+if [ ! -f pyproject.toml ]; then
+  echo "This launcher must stay inside the Strategy Lab folder. Unzip the download first, then double-click it there."
+  read -r; exit 1
+fi
 if [ ! -x .venv/bin/python ]; then
   echo "First run: setting up Strategy Lab (needs Python 3.11 or newer)..."
   PY=$(command -v python3.13 || command -v python3.12 || command -v python3.11 || command -v python3)
