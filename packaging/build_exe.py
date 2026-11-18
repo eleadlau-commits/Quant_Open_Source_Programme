@@ -39,7 +39,6 @@ args = [
     "--exclude-module", "uvicorn",
     "--exclude-module", "pytest",
     "--exclude-module", "matplotlib",
-    "--exclude-module", "tkinter",
     "--distpath", str(ROOT / "dist"),
     "--workpath", str(ROOT / "build"),
     "--specpath", str(ROOT / "build"),
@@ -47,4 +46,8 @@ args = [
 # Plugins (built-in or added later) may import these; PyInstaller cannot see that.
 for mod in sorted(ALLOWED_IMPORTS - {"__future__"}):
     args += ["--hidden-import", mod]
+# Portable single-file build: show a splash while it unpacks (Windows/macOS;
+# needs Tcl/Tk in the building Python, which the python.org builds include).
+if not onedir and sys.platform in ("win32", "darwin"):
+    args += ["--splash", str(ROOT / "packaging" / "assets" / "splash.png")]
 PyInstaller.__main__.run(args + extra)
