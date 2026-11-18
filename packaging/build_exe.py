@@ -17,6 +17,9 @@ onedir = "--onedir" in sys.argv
 extra = [a for a in sys.argv[1:] if a != "--onedir"]
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from honestbt.plugins import ALLOWED_IMPORTS  # noqa: E402
+
 sep = ";" if os.name == "nt" else ":"
 args = [
     str(ROOT / "packaging" / "strategy_lab.py"),
@@ -28,6 +31,8 @@ args = [
     "--add-data", f"{ROOT / 'configs'}{sep}configs",
     "--paths", str(ROOT),
     "--collect-submodules", "honestbt",
+    # Plugin folders are read from disk at start-up, so ship them as files.
+    "--add-data", f"{ROOT / 'honestbt' / 'plugins' / 'builtin'}{sep}honestbt/plugins/builtin",
     # not needed by the desktop app; keeps the file smaller
     "--exclude-module", "pyarrow",
     "--exclude-module", "fastapi",
@@ -39,4 +44,7 @@ args = [
     "--workpath", str(ROOT / "build"),
     "--specpath", str(ROOT / "build"),
 ]
+# Plugins (built-in or added later) may import these; PyInstaller cannot see that.
+for mod in sorted(ALLOWED_IMPORTS - {"__future__"}):
+    args += ["--hidden-import", mod]
 PyInstaller.__main__.run(args + extra)

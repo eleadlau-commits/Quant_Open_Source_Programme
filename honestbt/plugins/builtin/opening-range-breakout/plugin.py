@@ -31,9 +31,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..features import _hhmm
-from ..registry import Param, register
-from .base import Entry, Strategy
+from honestbt.sdk import Entry, Param, Strategy, hhmm, register
+
 
 MIN = np.timedelta64(1, "m")
 
@@ -68,7 +67,7 @@ class OpeningRangeBreakout(Strategy):
 
     def decision_times(self, data):
         days = data.trading_days
-        return [d.astype("datetime64[m]") + _hhmm(self._p("box_end")) for d in days]
+        return [d.astype("datetime64[m]") + hhmm(self._p("box_end")) for d in days]
 
     def poll_schedule(self, t):
         day = np.datetime64(t, "D").astype("datetime64[m]")
@@ -76,7 +75,7 @@ class OpeningRangeBreakout(Strategy):
         t = np.datetime64(t, "m")
         m = int((t - day) // MIN)
         first = (m // tf + 1) * tf  # first candle close strictly after the box end
-        last = int((_hhmm(self._p("last_entry")) // MIN))
+        last = int((hhmm(self._p("last_entry")) // MIN))
         return [day + np.timedelta64(x, "m") for x in range(first, last + 1, tf)]
 
     def decide(self, view, R):
@@ -116,7 +115,7 @@ class OpeningRangeBreakout(Strategy):
             side = 1 if R.feature(p["direction_feature"], s) >= 0.5 else -1
         day = view.today.astype("datetime64[m]")
         e = Entry(symbol=s, weight=float(p["contracts"]), exit=R.resolve(p["exit"] or {"plugin": "never"}, s),
-                  max_exit_time=day + _hhmm(p["flat_time"]), info=info, side=side,
+                  max_exit_time=day + hhmm(p["flat_time"]), info=info, side=side,
                   target_r=float(p["target_r"]))
         if p["stop_at"] == "opposite_edge":
             e.stop_price = lo if side > 0 else hi

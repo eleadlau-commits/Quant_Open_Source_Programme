@@ -1,0 +1,15 @@
+{
+  "id": "cost-stress",
+  "name": "Cost stress test",
+  "description": "Re-runs with trading costs multiplied; passes if still profitable.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "evaluator": [
+      "cost_stress"
+    ]
+  },
+  "requires": []
+}

@@ -59,9 +59,9 @@ for v in out["verdicts"]:
                  └────── GuardedView pinned to time t ─────┘   ← look-ahead guard
 ```
 
-Six plugin kinds, all registered with `@register(kind, name, params=[...])`
-(see `honestbt/registry.py`). Third-party packages add plugins through the
-`honestbt.plugins` entry-point group.
+Six plugin kinds, all registered with `@register(kind, name, params=[...])`.
+Every plugin lives in its own folder (see [Plugins](#plugins) below), and the
+built-in ones are in `honestbt/plugins/builtin/`.
 
 | Kind | Signature | Built-ins |
 |---|---|---|
@@ -71,6 +71,35 @@ Six plugin kinds, all registered with `@register(kind, name, params=[...])`
 | `signal` | `(path, ctx, **p) -> bool[]` | `atr_trailing`, `ema_cross`, `heikin_ashi`, `time_stop`, `any_of`, `never` |
 | `strategy` | class: `decision_times`, `decide(view, resolver)`, optional `poll_schedule` | `weekly_topn`, `opening_range_breakout` |
 | `evaluator` | `(ectx, **p) -> Verdict` | `out_of_sample`, `bootstrap`, `deflated_sharpe`, `cost_stress`, `random_baseline`, `benchmark`, `parameter_stability`, `ablation` |
+
+### Plugins
+
+Each plugin is a folder, and any folder can be removed while the rest keep
+working:
+
+```
+honestbt/plugins/builtin/bootstrap/
+  plugin.json   {"id": "bootstrap", "name": "Bootstrap test", "version": "1.0.0", "api": 1,
+                 "main": "plugin.py", "provides": {"evaluator": ["bootstrap"]}, "requires": []}
+  plugin.py     the @register code; imports only honestbt.sdk, numpy, pandas and a little stdlib
+  tests/        its own tests (pytest honestbt/plugins/builtin/bootstrap)
+  README.md     What it adds / What it needs / Check it
+  suites/       optional: named test suites, e.g. honest-stocks.json
+  presets/      optional: settings files; a strategy family is a preset with a sweep
+```
+
+* **Independence.** A plugin whose `requires` are missing or off stays off
+  and says why. A plugin whose code fails to load is switched off, and
+  everything it registered is removed. A plugin may import only
+  `honestbt.sdk` (the plugin API), so plugins never reach into each other.
+  The tests remove every built-in folder in turn and check the rest load.
+* **Your own plugins** go in `~/Documents/Strategy Lab/plugins/<id>/` (or
+  `$HONESTBT_PLUGIN_DIR`). They load the same way as the built-in ones.
+* **Packs without code.** A folder with `"main": null` can ship only test
+  suites (`"evaluators": [{"$suite": "honest-stocks"}]`) or only presets
+  (strategy families). Examples: `honest-tests` and `gap-families`.
+* This keeps plugins tidy and independent. It is **not** a sandbox: Python
+  plugin code can do anything Python can, so only add plugins you trust.
 
 ### Honesty mechanisms built into the core
 

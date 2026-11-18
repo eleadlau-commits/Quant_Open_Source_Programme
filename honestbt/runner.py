@@ -7,7 +7,7 @@ from typing import Any
 
 from . import engine
 from .evaluators import EvalContext, Verdict
-from .patchbay import ConfigError, expand_sweep, validate
+from .patchbay import ConfigError, expand_evaluators, expand_sweep, validate
 from .registry import get, load_plugins
 
 _DATA_CACHE: dict[str, Any] = {}
@@ -47,7 +47,7 @@ def run_config(cfg: dict, data=None, strict: bool = True) -> dict:
     ectx = EvalContext(data, cfg, points, selected, run_one)
 
     verdicts: list[Verdict] = []
-    for ev in cfg.get("evaluators") or []:
+    for ev in expand_evaluators(cfg):
         fn = get("evaluator", ev["plugin"])
         try:
             verdicts.append(fn(ectx, **ev.get("params", {})))

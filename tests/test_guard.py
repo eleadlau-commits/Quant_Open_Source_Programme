@@ -38,7 +38,8 @@ def test_premarket_last_uses_only_premarket(small_data):
 
 
 def test_delisted_names_stay_in_universe_until_they_stop_trading(small_data):
-    from honestbt.data.synthetic import synthetic
+    from honestbt.registry import get
+    synthetic = get("data", "synthetic")
     d = synthetic(n_symbols=30, n_days=120, seed=1, delist_frac=0.5)
     gone = [s for s in d.symbols if d.last_date(s) < d.trading_days[-1]]
     assert gone, "fixture should contain delisted names"

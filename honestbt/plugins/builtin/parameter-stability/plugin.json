@@ -1,0 +1,15 @@
+{
+  "id": "parameter-stability",
+  "name": "Parameter stability test",
+  "description": "Checks that most nearby parameter settings are profitable, not just one lucky point.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "evaluator": [
+      "parameter_stability"
+    ]
+  },
+  "requires": []
+}

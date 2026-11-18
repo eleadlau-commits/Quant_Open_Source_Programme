@@ -1,0 +1,15 @@
+{
+  "id": "synthetic-futures",
+  "name": "Synthetic futures",
+  "description": "Made-up Nasdaq-100 futures minute bars over the full Globex session, with optional planted edges.",
+  "version": "1.0.0",
+  "api": 1,
+  "author": "E",
+  "main": "plugin.py",
+  "provides": {
+    "data": [
+      "synthetic_futures"
+    ]
+  },
+  "requires": []
+}

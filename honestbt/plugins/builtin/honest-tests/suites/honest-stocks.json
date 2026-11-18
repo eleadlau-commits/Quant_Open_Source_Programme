@@ -1,0 +1,32 @@
+[
+  {
+    "plugin": "out_of_sample",
+    "params": {
+      "split": 0.6
+    }
+  },
+  {
+    "plugin": "bootstrap"
+  },
+  {
+    "plugin": "deflated_sharpe"
+  },
+  {
+    "plugin": "cost_stress",
+    "params": {
+      "multiplier": 2
+    }
+  },
+  {
+    "plugin": "random_baseline",
+    "params": {
+      "n": 40
+    }
+  },
+  {
+    "plugin": "benchmark"
+  },
+  {
+    "plugin": "parameter_stability"
+  }
+]

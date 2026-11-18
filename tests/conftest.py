@@ -16,5 +16,6 @@ def base_config():
 
 @pytest.fixture(scope="session")
 def small_data():
-    from honestbt.data.synthetic import synthetic
+    from honestbt.registry import get
+    synthetic = get("data", "synthetic")
     return synthetic(n_symbols=20, n_days=60, seed=3)

@@ -17,9 +17,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..registry import Param, register
-from ..data.model import monday_week
-from .base import Entry, Strategy
+from honestbt.sdk import Entry, Param, Strategy, monday_week, register
+
 
 DAY = np.timedelta64(1, "D")
 
