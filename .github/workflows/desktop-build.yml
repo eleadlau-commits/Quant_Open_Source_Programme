@@ -13,8 +13,8 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    env:
-      QT_QPA_PLATFORM: offscreen
+    # No QT_QPA_PLATFORM=offscreen: the self-tests open a real window, so a
+    # missing Windows platform plugin would fail here rather than on a user's PC.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,6 +25,12 @@ jobs:
         run: python packaging/build_exe.py
       - name: Build app folder for the installer
         run: python packaging/build_exe.py --onedir
+      - name: Check the Qt Windows platform plugin is bundled
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem -Recurse dist\StrategyLab -Filter qwindows.dll | Select-Object -First 1
+          if (-not $f) { Write-Error "qwindows.dll missing from the app folder"; exit 1 }
+          $f.FullName
       - name: Build installer
         shell: pwsh
         run: |

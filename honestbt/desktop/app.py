@@ -387,14 +387,16 @@ def self_test(app: QApplication, win: MainWindow) -> int:
     return 0 if ok else 1
 
 
-def main(argv=None):
+def main(argv=None, on_shown=None):
     argv = sys.argv if argv is None else argv
     app = QApplication(argv)
     app.setApplicationName("Strategy Lab")
     win = MainWindow()
+    win.show()  # shown in self-test too, so CI exercises the real window system
+    if on_shown:
+        on_shown()
     if "--self-test" in argv:
         return self_test(app, win)
-    win.show()
     return app.exec()
 
 
