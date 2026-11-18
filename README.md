@@ -8,9 +8,21 @@ catch luck, overfitting, look-ahead and unrealistic costs.
 > Surviving these tests means a result survived them. It is never evidence that
 > a strategy will make money. Not financial advice.
 
-![screenshot](docs/screenshot.png)
+![screenshot](docs/desktop.png)
 
 ## Quick start
+
+**Desktop app (recommended).** Install Python 3.11+ from python.org, then
+double-click `Strategy Lab.bat` (Windows) or `Strategy Lab.command` (Mac).
+The first launch sets up a private environment in `.venv` (a few minutes);
+after that it opens straight away. Or from a terminal:
+
+```bash
+pip install -e ".[desktop]"
+strategy-lab                            # or: python -m honestbt.desktop
+```
+
+**Developers / browser UI:**
 
 ```bash
 pip install -e ".[web,dev]"
