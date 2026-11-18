@@ -36,10 +36,11 @@ UI = {
     "save": "Save the current settings as your own strategy file. It then appears in Presets as '(mine)'.",
     "plugins": "See every plugin, switch them on or off, and import .tiplug packs.",
     "run": "Backtest every variant in the sweep, then put the best one through the tests (Ctrl+Enter).",
-    "patchbay": "The patch bay: features on the left, mappings (cables) in the middle, the strategy on the right. "
-                "Click a box to edit it. Right-click to add pieces or plug them together.",
+    "patchbay": "The patch bay: build the strategy by wiring boxes. Drag a box to move it, drag from a ● output onto a "
+                "setting to plug it in, drag a cable off to unplug it, double-click a setting to type a value, "
+                "right-click for everything else. Drag plugins in from the Plugin catalogue.",
     "editor": "The full settings as JSON. Hover any word to see what it means. Changes redraw the patch bay at once.",
-    "catalogue": "Every plugin you can use. Double-click one (or right-click → Add) to put it into your strategy.",
+    "catalogue": "Every plugin you can use. Double-click one, or drag it onto the patch bay, to put it into your strategy.",
     "summary": "How many tests the best-looking variant survived.",
     "Verdicts": "One block per test. Drag the blocks to arrange them; the order is remembered.",
     "Equity": "Growth of 1 for the selected variant, against the benchmark or ablation when there is one.",

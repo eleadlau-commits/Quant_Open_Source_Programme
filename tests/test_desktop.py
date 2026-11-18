@@ -179,3 +179,73 @@ def test_patch_bay_and_catalogue_edit_the_settings():
     assert w.help_line.text() == "x"
     w.show_help("")
     assert "Hover" in w.help_line.text()
+
+
+def test_builder_connect_unplug_and_sweep():
+    from honestbt.desktop import builder
+    from honestbt.registry import load_plugins
+    load_plugins()
+    cfg = {"data": {"plugin": "synthetic"},
+           "features": {"gap": {"plugin": "premarket_gap"}, "vol": {"plugin": "realized_vol"}},
+           "mappings": {"a": {"plugin": "linear", "input": "vol"}, "b": {"plugin": "linear", "input": "a"}},
+           "strategy": {"plugin": "weekly_topn", "params": {"top_n": 5, "exit": {"plugin": "atr_trailing"}}}}
+    new, _ = builder.connect(cfg, ("m", "b"), "strategy.params.exit.params.k")
+    assert new["strategy"]["params"]["exit"]["params"]["k"] == {"$map": "b"}
+    new, _ = builder.connect(new, ("f", "gap"), "strategy.params.rank_by")
+    assert new["strategy"]["params"]["rank_by"] == "gap"
+    bad, why = builder.connect(new, ("m", "a"), "strategy.params.rank_by")
+    assert bad is None and "needs a feature" in why
+    loop, why = builder.connect(new, ("m", "b"), "mappings.a.input")
+    assert loop is None and "loop" in why
+    assert builder.unplug(new, "strategy.params.exit.params.k")["strategy"]["params"]["exit"]["params"]["k"] == 1.0
+    assert builder.unplug(new, "mappings.b.input")["mappings"]["b"]["input"] is None
+    swept, _ = builder.add_sweep(new, "strategy.params.top_n")
+    assert swept["sweep"]["strategy.params.top_n"] == [2, 5, 8]
+    laid = builder.set_positions(new, {"f:gap": [10.4, 20.6]})
+    assert laid[builder.LAYOUT]["f:gap"] == [10, 21]
+    assert "f:gap" not in builder.remove(laid, "feature", "gap")[builder.LAYOUT]
+
+
+def test_patch_bay_wires_by_dragging_and_moves_boxes():
+    import json
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+    from honestbt.desktop.app import MainWindow
+    from honestbt.patchbay import validate
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    w = MainWindow()
+    w.resize(1400, 900)
+    w.show()
+    app.processEvents()
+    g = w.graph
+    LB = QtCore.Qt.LeftButton
+    # drag from feature vol20's output onto the strategy's top_n row -> {"$feature": "vol20"}
+    src = g.boxes["f:vol20"].out_port.toPoint()
+    row = next(r for r in g.boxes["s"].rows if r.label == "min_price")
+    dst = row.rect.center().toPoint()
+    QTest.mousePress(g, LB, QtCore.Qt.NoModifier, src)
+    QTest.mouseMove(g, dst)
+    QTest.mouseRelease(g, LB, QtCore.Qt.NoModifier, dst)
+    cfg = json.loads(w.editor.toPlainText())
+    assert cfg["strategy"]["params"]["min_price"] == {"$feature": "vol20"}
+    assert not validate(cfg)
+    # pick the exit's smooth cable up and drop it in empty space -> unplugged, back to default
+    xrow = next(r for r in g.boxes["x"].rows if r.label == "smooth")
+    assert xrow.source == ("m", "smooth_from_vol")
+    port = QPoint(int(xrow.rect.left()), int(xrow.rect.center().y()))
+    QTest.mousePress(g, LB, QtCore.Qt.NoModifier, port)
+    QTest.mouseMove(g, QPoint(5, g.height() - 5))
+    QTest.mouseRelease(g, LB, QtCore.Qt.NoModifier, QPoint(5, g.height() - 5))
+    cfg = json.loads(w.editor.toPlainText())
+    assert cfg["strategy"]["params"]["exit"]["params"]["smooth"] == 10
+    # move a box: its position is saved in the settings
+    b = g.boxes["f:gap"].rect
+    start = QPoint(int(b.left() + 40), int(b.center().y()))
+    QTest.mousePress(g, LB, QtCore.Qt.NoModifier, start)
+    QTest.mouseMove(g, start + QPoint(30, 200))
+    QTest.mouseRelease(g, LB, QtCore.Qt.NoModifier, start + QPoint(30, 200))
+    cfg = json.loads(w.editor.toPlainText())
+    assert cfg["patchbay_layout"]["f:gap"] == [round(b.left() + 30), round(b.top() + 200)]
+    # Ctrl+Z in the editor undoes the last patch-bay edit
+    w.editor.undo()
+    assert "patchbay_layout" not in json.loads(w.editor.toPlainText())

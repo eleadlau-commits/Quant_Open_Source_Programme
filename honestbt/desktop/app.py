@@ -13,11 +13,11 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, Qt, QThread, Signal
+from PySide6.QtCore import QEvent, QMimeData, QObject, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QMainWindow,
-    QMenu, QMessageBox, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
+    QMenu, QMessageBox, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem,
     QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -31,7 +31,9 @@ from . import builder
 from .help import KIND_WORDS, UI, plugin_doc
 from .plugins_dialog import PluginsDialog
 from .verdicts import VerdictBoard
-from .widgets import EquityChart, HoverEditor, PatchBayView
+from .patchbay_view import MIME as PLUGIN_MIME
+from .patchbay_view import PatchBayView
+from .widgets import EquityChart, HoverEditor
 
 def _find_root() -> Path:
     """Folder holding configs/: the PyInstaller bundle, the source checkout, or the
@@ -81,6 +83,25 @@ def tip(widget, text: str):
 HELP_IDLE = "Hover over anything to see what it does."
 
 
+class CatalogueTree(QTreeWidget):
+    """Plugin catalogue whose entries can be dragged onto the patch bay."""
+
+    def __init__(self):
+        super().__init__()
+        self.setDragEnabled(True)
+        self.setDragDropMode(QTreeWidget.DragOnly)
+
+    def mimeTypes(self):
+        return [PLUGIN_MIME]
+
+    def mimeData(self, items):
+        mime = QMimeData()
+        it = items[0] if items else None
+        if it is not None and it.parent() is not None:
+            mime.setData(PLUGIN_MIME, f"{it.parent().data(0, Qt.UserRole)}:{it.text(0)}".encode())
+        return mime
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -122,6 +143,10 @@ class MainWindow(QMainWindow):
         self.graph.hovered.connect(self.show_help)
         self.graph.clicked.connect(self.reveal)
         self.graph.edited.connect(self.apply_config)
+        self.graph.message.connect(lambda m: self.statusBar().showMessage(m, 8000))
+        graph_scroll = QScrollArea()
+        graph_scroll.setWidgetResizable(True)
+        graph_scroll.setWidget(self.graph)
         self.editor = HoverEditor()
         self.editor.hovered.connect(self.show_help)
         self.editor.setFont(QFont("Menlo" if sys.platform == "darwin" else "Consolas", 10))
@@ -129,7 +154,7 @@ class MainWindow(QMainWindow):
         self.problems = QLabel()
         self.problems.setWordWrap(True)
         self.problems.setStyleSheet(f"color: {FAIL.name()};")
-        self.catalogue = QTreeWidget()
+        self.catalogue = CatalogueTree()
         self.catalogue.setHeaderLabels(["Plugin", "What it does", "Settings"])
         self.catalogue.setMouseTracking(True)
         self.catalogue.itemEntered.connect(self.catalogue_hover)
@@ -152,11 +177,11 @@ class MainWindow(QMainWindow):
         gl = QVBoxLayout(gbox)
         gl.setContentsMargins(0, 0, 0, 0)
         gl.addWidget(tip(QLabel("<b>Patch bay</b> <span style='color:gray'>features → mappings (cables) → strategy"
-                                " · click a box to edit · right-click to add or plug in</span>"), UI["patchbay"]))
-        gl.addWidget(self.graph)
+                                " · drag ● outputs onto settings to wire · right-click for more</span>"), UI["patchbay"]))
+        gl.addWidget(graph_scroll)
         left.addWidget(gbox)
         left.addWidget(left_tabs)
-        left.setSizes([300, 600])
+        left.setSizes([480, 420])
 
         # ---- right: results
         self.summary = QLabel("Run a configuration to see results.")
@@ -189,7 +214,7 @@ class MainWindow(QMainWindow):
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
         split.addWidget(right)
-        split.setSizes([600, 800])
+        split.setSizes([680, 720])
         self.help_line = QLabel(HELP_IDLE)
         self.help_line.setWordWrap(True)
         self.help_line.setMinimumHeight(38)
@@ -242,7 +267,15 @@ class MainWindow(QMainWindow):
 
     # ---- building in the patch bay and the catalogue
     def apply_config(self, cfg: dict, what: str = ""):
-        self.editor.setPlainText(json.dumps(cfg, indent=2))
+        """Write new settings into the editor as one undoable step (Ctrl+Z in the editor undoes it)."""
+        bar = self.editor.verticalScrollBar()
+        keep = bar.value()
+        cur = self.editor.textCursor()
+        cur.beginEditBlock()
+        cur.select(cur.SelectionType.Document)
+        cur.insertText(json.dumps(cfg, indent=2))
+        cur.endEditBlock()
+        bar.setValue(keep)
         if what:
             self.statusBar().showMessage(what, 6000)
 

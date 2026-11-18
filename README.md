@@ -160,16 +160,31 @@ functions). Example (`configs/monday_gap_top5.json`):
           "mappings.smooth_from_vol.params.slope": [0, 20, 40]}
 ```
 
-**Building in the desktop app.** You don't have to type the JSON by hand:
+![patch bay](docs/patchbay.png)
+
+**Building in the desktop app.** The patch bay is a node editor over the
+JSON, so you don't have to type it by hand (the JSON stays the source of
+truth; every edit rewrites it, and Ctrl+Z in the editor undoes one):
 
 * **New…** starts a strategy from a strategy plugin (a copy of the shipped
   example that uses it, so it runs straight away).
-* In the patch bay, **right-click** to add a feature, a mapping (cable), an
-  exit signal or a test; right-click a mapping to plug it into a strategy
-  setting or choose its input; right-click a feature to use it for ranking;
-  right-click the strategy or data box to swap them. **Click** a box to jump
-  to its settings in the editor.
-* In the **Plugin catalogue** tab, double-click any plugin to add it.
+* **Boxes** are features (blue), mappings (yellow), the strategy (green), its
+  exit (purple), the data source and the tests. Drag them anywhere; positions
+  are saved in the file under `patchbay_layout`, which the backtest ignores.
+* **Ports and cables.** Drag from a feature's or mapping's ● output onto a
+  mapping's input or onto a strategy/exit setting:
+  feature → mapping writes `"input": "gap"`, mapping → number setting writes
+  `{"$map": "..."}`, feature → number setting writes `{"$feature": "..."}`,
+  feature → ranking/feature setting writes its name. Wiring that makes no
+  sense (a mapping into a ranking slot, a loop) is refused with a reason.
+  Drag a cable off its input to unplug it (the setting goes back to its default).
+* **Double-click** a setting to type a value; **right-click** it to unplug,
+  edit, or *Sweep* it (adds a sweep axis around its value). Right-click
+  empty space to add features, mappings, exits and tests; right-click a box
+  to swap the strategy, exit or data, or remove it (or select it and press
+  Delete). *Tidy layout* puts the boxes back in columns.
+* Drag a plugin from the **Plugin catalogue** onto the patch bay (or
+  double-click it) to add it.
 * **Hover** over anything (a word in the settings, a patch-bay box, a button,
   a test) and the help line at the bottom of the window explains it.
 * **Presets** are ready-made strategy files to start from: the examples in

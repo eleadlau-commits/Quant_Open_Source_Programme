@@ -76,6 +76,7 @@ def remove(cfg: dict, kind: str, key: str) -> dict:
     """Take a feature or mapping out of the settings."""
     out = copy.deepcopy(cfg)
     (out.get(SECTION[kind]) or {}).pop(key, None)
+    (out.get(LAYOUT) or {}).pop(f"{kind[0]}:{key}", None)
     return out
 
 
@@ -123,3 +124,103 @@ def new_config(strategy: str, examples: list[Path] = ()) -> dict:
     return {"name": f"My {strategy.replace('_', ' ')} strategy", "data": _spec("data", data), "features": {},
             "mappings": {}, "strategy": _spec("strategy", strategy), "sweep": {},
             "evaluators": [{"plugin": "out_of_sample", "params": {"split": 0.6}}, {"plugin": "bootstrap"}]}
+
+
+# ---- used by the interactive patch bay
+
+LAYOUT = "patchbay_layout"  # box positions, saved in the settings file; the backtest ignores it
+
+
+def slot_default(cfg: dict, path: str):
+    """The plugin default for a strategy or exit setting (what unplugging puts back)."""
+    if path.startswith("strategy.params.exit.params."):
+        kind, spec = "signal", ((cfg.get("strategy") or {}).get("params") or {}).get("exit") or {}
+    else:
+        kind, spec = "strategy", cfg.get("strategy") or {}
+    return copy.deepcopy(default_params(kind, spec.get("plugin", "")).get(path.split(".")[-1]))
+
+
+def unplug(cfg: dict, path: str) -> dict:
+    """Pull a cable out: a mapping's input becomes empty, a setting goes back to its default."""
+    out = copy.deepcopy(cfg)
+    if path.startswith("mappings.") and path.endswith(".input"):
+        out["mappings"][path.split(".")[1]]["input"] = None
+        return out
+    default = slot_default(cfg, path)
+    if default is None:
+        parent = get_path(out, path.rsplit(".", 1)[0])
+        if isinstance(parent, dict):
+            parent.pop(path.split(".")[-1], None)
+        return out
+    set_path(out, path, default)
+    return out
+
+
+def feeds(cfg: dict, mapping: str) -> set[str]:
+    """Every mapping upstream of ``mapping`` (itself included), to refuse loops."""
+    seen, todo = set(), [mapping]
+    maps = cfg.get("mappings") or {}
+    while todo:
+        m = todo.pop()
+        if m in seen or m not in maps:
+            continue
+        seen.add(m)
+        todo.append(maps[m].get("input"))
+    return seen
+
+
+def connect(cfg: dict, source: tuple[str, str], target: str) -> tuple[dict | None, str]:
+    """Plug ``source`` = ("f"|"m", name) into input ``target`` (a dotted path).
+
+    Returns (new settings, what happened) or (None, why it can't be plugged there).
+    """
+    kind, name = source
+    if target.startswith("mappings.") and target.endswith(".input"):
+        m = target.split(".")[1]
+        if kind == "m" and m in feeds(cfg, name):
+            return None, f"Can't plug '{name}' into '{m}': that would make a loop."
+        return set_input(cfg, m, name), f"Mapping '{m}' now takes '{name}'."
+    feat_slots, num_slots = strategy_slots(cfg)
+    label = target.replace("strategy.params.", "").replace("exit.params.", "exit ")
+    if target in feat_slots:
+        if kind != "f":
+            return None, f"'{label}' needs a feature (a blue box), not a mapping."
+        return wire(cfg, target, name), f"{label} now uses feature '{name}'."
+    if target in num_slots:
+        ref = {"$map": name} if kind == "m" else {"$feature": name}
+        return wire(cfg, target, ref), f"{label} now follows '{name}', worked out per symbol at decision time."
+    return None, f"'{label}' can't take a cable."
+
+
+def remove_evaluator(cfg: dict, index: int) -> dict:
+    out = copy.deepcopy(cfg)
+    evs = out.get("evaluators") or []
+    if isinstance(evs, list) and 0 <= index < len(evs):
+        evs.pop(index)
+    return out
+
+
+def add_sweep(cfg: dict, path: str) -> tuple[dict, str]:
+    """Make a setting a sweep axis: half, the same and one and a half times its value."""
+    out = copy.deepcopy(cfg)
+    v = get_path(out, path)
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return out, f"Only number settings can be swept from here; edit 'sweep' in the JSON for {path}."
+    vals = [v * 0.5, v, v * 1.5]
+    vals = sorted({max(1, round(x)) for x in vals}) if isinstance(v, int) else [round(x, 6) for x in vals]
+    out.setdefault("sweep", {})[path] = vals
+    return out, f"Sweeping {path} over {vals}."
+
+
+def set_positions(cfg: dict, positions: dict[str, list[float]]) -> dict:
+    out = copy.deepcopy(cfg)
+    lay = dict(out.get(LAYOUT) or {})
+    lay.update({k: [round(x), round(y)] for k, (x, y) in positions.items()})
+    out[LAYOUT] = lay
+    return out
+
+
+def clear_layout(cfg: dict) -> dict:
+    out = copy.deepcopy(cfg)
+    out.pop(LAYOUT, None)
+    return out
