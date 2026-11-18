@@ -294,7 +294,7 @@ class MainWindow(QMainWindow):
         self.summary.setText(
             f"<b style='color:{color.name()}'>Survived {s['survived']} of {s['evaluated']} tests: {s['overall']}.</b><br>"
             f"<span style='color:gray'>Selected variant {json.dumps(out['selected_point'])} · {out['data']} · "
-            f"{out['elapsed_s']} s. {s['note']}</span>")
+            f"{out['elapsed_s']} s. {s['note']}</span>" + self._prereg_line(out))
         while self.verdict_box.count() > 1:
             w = self.verdict_box.takeAt(0).widget()
             if w:
@@ -306,10 +306,25 @@ class MainWindow(QMainWindow):
         bm = next((v for v in out["verdicts"] if v["name"] == "Benchmark"), None)
         if bm and bm["details"].get("benchmark_equity"):
             series.append(("buy the filtered universe", bm["details"]["benchmark_equity"]["v"], QColor("#8a8a84")))
+        ab = next((v for v in out["verdicts"] if v["name"].startswith("Ablation")), None)
+        if ab and ab["details"].get("without_equity"):
+            series.append((ab["name"].replace("Ablation: ", "without "), ab["details"]["without_equity"]["v"],
+                           QColor("#c0841a")))
         self.chart.set_series(series)
         self.fill_sweep(out["sweep"])
         self.fill_trades(out["selected"]["trades"])
         self.statusBar().showMessage(f"Done in {out['elapsed_s']} s", 8000)
+
+    @staticmethod
+    def _prereg_line(out: dict) -> str:
+        pre = out.get("preregistered")
+        if not pre or pre.get("of", 1) < 2:
+            return ""
+        m = pre["metrics"]
+        money = f", total ${m['total_pnl_usd']:,.0f}" if "total_pnl_usd" in m else ""
+        return (f"<br><span style='color:gray'>Your rules as fixed in advance (no sweep): Sharpe {m.get('sharpe', 0):.2f}"
+                f"{money}, ranked {pre['rank']} of {pre['of']} variants. The tests judge the best-looking variant, "
+                f"the one a seller would show.</span>")
 
     def fill_sweep(self, sweep):
         t = self.sweep_table
@@ -335,13 +350,21 @@ class MainWindow(QMainWindow):
     def fill_trades(self, trades):
         t = self.trades_table
         t.setSortingEnabled(False)
-        heads = ["symbol", "entry", "exit", "held (min)", "reason", "score", "net"]
+        futures = bool(trades) and trades[0].get("pnl_usd") is not None
+        heads = ["symbol", "entry", "exit", "held (min)", "reason", "side" if futures else "score",
+                 "net $" if futures else "net"] + (["R"] if futures else [])
         t.setColumnCount(len(heads))
         t.setHorizontalHeaderLabels(heads)
         t.setRowCount(len(trades))
         for r, tr in enumerate(trades):
             vals = [tr["symbol"], tr["entry_time"][:16].replace("T", " "), tr["exit_time"][:16].replace("T", " "),
-                    str(tr["minutes_held"]), tr["reason"], pct(tr.get("score")), pct(tr["net_return"])]
+                    str(tr["minutes_held"]), tr["reason"]]
+            if futures:
+                rm = tr.get("r_multiple")
+                vals += ["long" if tr.get("side", 1) > 0 else "short", f"{tr['pnl_usd']:+,.2f}",
+                         "–" if rm is None else f"{rm:+.2f}"]
+            else:
+                vals += [pct(tr.get("score")), pct(tr["net_return"])]
             for c, v in enumerate(vals):
                 t.setItem(r, c, QTableWidgetItem(v))
             t.item(r, 6).setForeground(PASS if tr["net_return"] > 0 else FAIL)

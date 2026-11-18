@@ -100,8 +100,15 @@ class PatchBayView(QWidget):
         p.drawRoundedRect(srect, 6, 6)
         p.setPen(ink)
         exit_ = (sp.get("exit") or {}).get("plugin", "")
-        lines = [strat.get("plugin", "strategy"), f"top {sp.get('top_n', '?')} by {sp.get('rank_by', '?')}",
-                 f"exit: {exit_}", f"sweep axes: {len(self.cfg.get('sweep') or {})}"]
+        if strat.get("plugin") == "opening_range_breakout":
+            filt = (f"filter: {sp.get('trend_timeframe', 15)}m EMA{sp.get('ema_fast', 50)}/{sp.get('ema_slow', 200)}"
+                    if sp.get("trend_filter") else "filter: off")
+            lines = [strat.get("plugin"), f"box {sp.get('box_start', '09:30')}-{sp.get('box_end', '09:45')}, "
+                     f"1R/{sp.get('target_r', 3):g}R", filt,
+                     f"sweep axes: {len(self.cfg.get('sweep') or {})}"]
+        else:
+            lines = [strat.get("plugin", "strategy"), f"top {sp.get('top_n', '?')} by {sp.get('rank_by', '?')}",
+                     f"exit: {exit_}", f"sweep axes: {len(self.cfg.get('sweep') or {})}"]
         for i, t in enumerate(lines):
             f = p.font()
             f.setBold(i == 0)

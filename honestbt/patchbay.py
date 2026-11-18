@@ -37,8 +37,13 @@ class Resolver:
         self.view = view
         self._cache = cache if cache is not None else {}
 
-    def feature(self, name: str, symbol: str) -> float:
-        spec = self.features.get(name)
+    def feature(self, name: str | dict, symbol: str) -> float:
+        """Value of a named feature, or of an inline spec ``{"plugin": ..., "params": {...}}``.
+
+        Inline specs let a strategy build a feature from its own (sweepable)
+        parameters, e.g. an opening box whose window is a strategy setting.
+        """
+        spec = name if isinstance(name, dict) else self.features.get(name)
         if spec is None:
             if not has("feature", name):
                 raise ConfigError(f"unknown feature {name!r}: define it under 'features' or use a plugin name")

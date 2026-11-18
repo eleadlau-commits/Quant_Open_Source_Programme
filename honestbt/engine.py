@@ -13,6 +13,13 @@ Fill rules (the honest part):
   regular-session bars and exits fill at regular-session prices.
 * Every fill pays half the spread plus slippage. Spreads are wider in the first
   minutes after the open and never narrower than half a cent per share.
+* Futures (config has an ``instrument``): P&L is in dollars per contract
+  (points x point value), market orders and stops pay slippage in ticks,
+  target limits fill at their price, and every side pays commission.
+* Brackets (stop / target) are checked bar by bar from the entry bar on. A bar
+  that opens through the stop fills at its open. If one minute bar touches
+  both stop and target we cannot know which came first, so we assume the stop
+  (and count it as ``stop_both_touched``).
 """
 from __future__ import annotations
 
@@ -47,6 +54,25 @@ class CostModel:
 
 
 @dataclass
+class FuturesCostModel:
+    """Costs for a futures contract, in ticks and dollars."""
+
+    commission_per_side: float = 0.85  # dollars per contract, all-in (broker + exchange + NFA)
+    slippage_ticks: float = 1.0  # market orders (entry, flat-at-close)
+    stop_slippage_ticks: float = 1.0  # stop orders become market orders when hit
+    target_slippage_ticks: float = 0.0  # resting limit: fills at its price (optimistic, see README)
+    multiplier: float = 1.0  # global stress factor (cost_stress)
+
+
+@dataclass
+class Instrument:
+    symbol: str = "MNQ"
+    tick_size: float = 0.25
+    point_value: float = 2.0  # dollars per index point (MNQ 2, NQ 20)
+    capital: float = 10000.0  # account size used to turn dollars into returns
+
+
+@dataclass
 class Trade:
     decision_time: str
     symbol: str
@@ -60,6 +86,9 @@ class Trade:
     gross_return: float
     net_return: float
     score: float | None = None
+    side: int = 1
+    pnl_usd: float | None = None  # futures only, for `weight` contracts
+    r_multiple: float | None = None  # net result in units of the initial risk
 
 
 @dataclass
@@ -86,6 +115,17 @@ class RunResult:
 
 
 def summarize(periods: pd.Series, trades: list[Trade], ppy: float = 52.0) -> dict:
+    out = _summarize(periods, trades, ppy)
+    if trades and trades[0].pnl_usd is not None:
+        pnl = np.array([t.pnl_usd for t in trades])
+        rr = np.array([t.r_multiple for t in trades if t.r_multiple is not None])
+        out.update(total_pnl_usd=float(pnl.sum()), avg_pnl_usd_per_trade=float(pnl.mean()),
+                   avg_r_per_trade=float(rr.mean()) if len(rr) else None,
+                   long_trades=sum(t.side > 0 for t in trades), short_trades=sum(t.side < 0 for t in trades))
+    return out
+
+
+def _summarize(periods: pd.Series, trades: list[Trade], ppy: float = 52.0) -> dict:
     r = periods.to_numpy(float)
     n = len(r)
     if n == 0:
@@ -118,10 +158,38 @@ def build_strategy(cfg: dict):
     return cls(**params)
 
 
+def _bracket_exit(path, side: int, stop: float | None, target: float | None):
+    """First bar index where the stop or target is hit, with fill price and reason."""
+    n = len(path)
+    for j in range(n):
+        o, h, l = path.open[j], path.high[j], path.low[j]
+        if stop is not None:
+            if j > 0 and (o - stop) * side <= 0:
+                return j, float(o), "stop_gap"
+            stop_hit = (l <= stop) if side > 0 else (h >= stop)
+        else:
+            stop_hit = False
+        tgt_hit = target is not None and ((h >= target) if side > 0 else (l <= target))
+        if stop_hit and tgt_hit:
+            return j, float(stop), "stop_both_touched"
+        if stop_hit:
+            return j, float(stop), "stop"
+        if tgt_hit:
+            if j > 0 and (o - target) * side >= 0:
+                return j, float(o), "target"  # gapped through the limit: filled at the (better) open
+            return j, float(target), "target"
+    return None
+
+
 def run(data: MarketData, cfg: dict, strict: bool = True, decision_filter=None) -> RunResult:
     """Run one concrete (already sweep-expanded) config."""
     strat = build_strategy(cfg)
-    cost = CostModel(**(cfg.get("costs") or {}))
+    futures = cfg.get("instrument") is not None
+    if futures:
+        inst = Instrument(**cfg["instrument"])
+        fcost = FuturesCostModel(**(cfg.get("costs") or {}))
+    else:
+        cost = CostModel(**(cfg.get("costs") or {}))
     trades: list[Trade] = []
     skipped: list[dict] = []
     period_net: dict = {}
@@ -132,12 +200,20 @@ def run(data: MarketData, cfg: dict, strict: bool = True, decision_filter=None) 
     if decision_filter is not None:
         times = [t for t in times if decision_filter(t)]
     for t in times:
-        t_ns = np.datetime64(t, "ns")
-        view = GuardedView(data, t_ns)
-        R = Resolver(cfg, view, data.feature_cache)
-        entries = strat.decide(view, R)
+        entries, t_ns, R = [], np.datetime64(t, "ns"), None
+        for tp in strat.poll_schedule(t):
+            tp_ns = np.datetime64(tp, "ns")
+            view = GuardedView(data, tp_ns)
+            R = Resolver(cfg, view, data.feature_cache)
+            got = strat.decide(view, R)
+            if got is None:
+                break
+            if got:
+                entries, t_ns = got, tp_ns
+                break
         net = gross = 0.0
         for e in entries:
+            side = int(e.side)
             ts, arr = data.ts[e.symbol], data.arr[e.symbol]
             i0 = int(np.searchsorted(ts, t_ns, "left"))
             iend = int(np.searchsorted(ts, np.datetime64(e.max_exit_time, "ns"), "left"))
@@ -157,8 +233,30 @@ def run(data: MarketData, cfg: dict, strict: bool = True, decision_filter=None) 
                 checked.add(sig_key)
             sig = run_signal(e.exit, path, ctx)
             hits = np.flatnonzero(sig)
-            if len(hits) and hits[0] + 1 < len(path):
-                j = hits[0] + 1
+            en_raw = float(path.open[0])
+
+            # bracket, priced from the actual fill
+            stop = target = risk = None
+            if e.stop_price is not None:
+                stop = float(e.stop_price)
+            elif e.stop_dist is not None:
+                stop = en_raw - side * float(e.stop_dist)
+            if stop is not None:
+                risk = (en_raw - stop) * side
+                if risk <= 0:  # filled beyond the stop already: exit at once
+                    risk = None
+                elif e.target_r is not None:
+                    target = en_raw + side * float(e.target_r) * risk
+            br = _bracket_exit(path, side, stop if risk else None, target) if risk else None
+            j_sig = hits[0] + 1 if len(hits) and hits[0] + 1 < len(path) else None
+
+            if stop is not None and risk is None:
+                j, x_t, x_raw, reason = 0, path.ts[0] + MINUTE, float(path.close[0]), "stop"
+            elif br is not None and (j_sig is None or br[0] < j_sig):
+                j, x_raw, reason = br
+                x_t = path.ts[j]  # filled during bar j
+            elif j_sig is not None:
+                j = j_sig
                 x_t, x_raw, reason = path.ts[j], float(path.open[j]), "signal"
             else:
                 j = len(path) - 1
@@ -166,16 +264,35 @@ def run(data: MarketData, cfg: dict, strict: bool = True, decision_filter=None) 
                 expected_last = np.datetime64(e.max_exit_time, "ns") - MINUTE
                 reason = "time_stop" if path.ts[-1] >= expected_last - 30 * MINUTE else "delisted_or_halted"
                 x_t = x_t + MINUTE  # sold at that bar's close
-            en_raw = float(path.open[0])
-            en_px = en_raw * (1 + cost.cost_frac(en_raw, path.ts[0]))
-            x_px = x_raw * (1 - cost.cost_frac(x_raw, x_t))
-            g = x_raw / en_raw - 1
-            n_ = x_px / en_px - 1
+
+            pnl_usd = r_mult = None
+            if futures:
+                tick, m = inst.tick_size, fcost.multiplier
+                slip_x = {"target": fcost.target_slippage_ticks, "stop": fcost.stop_slippage_ticks,
+                          "stop_gap": fcost.stop_slippage_ticks, "stop_both_touched": fcost.stop_slippage_ticks}
+                en_px = en_raw + side * fcost.slippage_ticks * tick * m
+                x_px = x_raw - side * slip_x.get(reason, fcost.slippage_ticks) * tick * m
+                gross_usd = side * (x_raw - en_raw) * inst.point_value
+                per_contract = side * (x_px - en_px) * inst.point_value - 2 * fcost.commission_per_side * m
+                g, n_ = gross_usd / inst.capital, per_contract / inst.capital
+                pnl_usd = per_contract * e.weight
+                if risk:
+                    r_mult = per_contract / (risk * inst.point_value)
+            else:
+                en_px = en_raw * (1 + side * cost.cost_frac(en_raw, path.ts[0]))
+                x_px = x_raw * (1 - side * cost.cost_frac(x_raw, x_t))
+                g = side * (x_raw / en_raw - 1)
+                n_ = side * (x_px / en_px - 1)
+                if risk:
+                    r_mult = n_ * en_raw / risk
             net += e.weight * n_
             gross += e.weight * g
             trades.append(Trade(str(t), e.symbol, e.weight, str(path.ts[0]), en_px, str(x_t), x_px, reason,
-                                int((x_t - path.ts[0]) // MINUTE), g, n_, e.info.get("score")))
+                                int((x_t - path.ts[0]) // MINUTE), g, n_, e.info.get("score"),
+                                side, pnl_usd, r_mult))
         key = pd.Timestamp(t)
         period_net[key] = net
         period_gross[key] = gross
-    return RunResult(trades, pd.Series(period_net, dtype=float), pd.Series(period_gross, dtype=float), skipped)
+    ppy = float(getattr(strat, "periods_per_year", 52.0))
+    return RunResult(trades, pd.Series(period_net, dtype=float), pd.Series(period_gross, dtype=float), skipped,
+                     periods_per_year=ppy)
