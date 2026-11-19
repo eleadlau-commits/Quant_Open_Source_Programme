@@ -183,6 +183,9 @@ def _bracket_exit(path, side: int, stop: float | None, target: float | None):
 
 def run(data: MarketData, cfg: dict, strict: bool = True, decision_filter=None) -> RunResult:
     """Run one concrete (already sweep-expanded) config."""
+    if (cfg.get("strategy") or {}).get("plugin") == "python":  # a strategy written as a Python file
+        from .positions import run as run_positions
+        return run_positions(data, cfg, decision_filter)
     strat = build_strategy(cfg)
     futures = cfg.get("instrument") is not None
     if futures:

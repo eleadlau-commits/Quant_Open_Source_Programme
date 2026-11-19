@@ -169,7 +169,10 @@ def validate(cfg: dict) -> list[str]:
         if src and src not in (cfg.get("mappings") or {}) and src not in (cfg.get("features") or {}) and not has("feature", src):
             problems.append(f"mappings.{name}: input {src!r} is not a feature or mapping")
     strat = cfg.get("strategy") or {}
-    if not has("strategy", strat.get("plugin", "")):
+    if strat.get("plugin") == "python":
+        from .pystrategy import check
+        problems += [f"strategy file: {p}" for p in check((strat.get("params") or {}).get("code", ""))]
+    elif not has("strategy", strat.get("plugin", "")):
         problems.append(_unknown("strategy", "strategy", strat.get("plugin")))
     data = cfg.get("data") or {}
     if data and not has("data", data.get("plugin", "")):

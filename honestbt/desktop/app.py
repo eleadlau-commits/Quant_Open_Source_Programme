@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import baseline
+from .. import pystrategy as ps
 from ..patchbay import validate
 from ..paths import app_dir
 from ..plugins import presets as plugin_presets
@@ -45,7 +46,9 @@ from .help import KIND_WORDS, UI, plugin_doc
 from .measurements import MeasurementsPage
 from .patchbay_view import MIME as PLUGIN_MIME
 from .plugins_dialog import PluginsDialog
-from .strategy_tab import DefaultTab, StrategyTab
+from .python_tab import PythonTab
+from .snippets import CODE_MODULES
+from .strategy_tab import DefaultTab, StrategyTab, TabBase
 
 
 def _find_root() -> Path:
@@ -113,6 +116,11 @@ def strategy_report(run: StrategyRun) -> dict:
     return rep
 
 
+def read_strategy(path: Path) -> dict | str:
+    """A strategy file: settings (.json) or Python source (.py)."""
+    return path.read_text() if path.suffix == ".py" else json.loads(path.read_text())
+
+
 def tip(widget, text: str):
     """Same text as a tooltip and on the help line at the bottom of the window."""
     widget.setToolTip(text)
@@ -145,6 +153,7 @@ LIBRARY_GROUPS = (
     ("Data → Buy/Sell", ("strategy", "signal"), "Decide what to hold: entries and exits."),
     ("Data sources", ("data",), "Where datasets come from."),
 )
+CODE_GROUP = ("Code modules", "Functions to drop into a strategy written in Python (double-click to add).")
 
 
 class MainWindow(QMainWindow):
@@ -219,6 +228,10 @@ class MainWindow(QMainWindow):
         self.data_page.hovered.connect(self.show_help)
         self.data_page.load_requested.connect(self.load_dataset)
         self.measurements = MeasurementsPage()
+        knobs = self.measurements.profit.knobs
+        knobs.turned.connect(self.knob_turned)
+        knobs.write.connect(lambda t: (t.write_knobs_into_code(), knobs.set_tabs(self.strategies, t)))
+        knobs.reset.connect(self.knobs_reset)
         self.backtests = BacktestsPage()
         self.backtests.hovered.connect(self.show_help)
         self.backtests.run_requested.connect(self.run_tests)
@@ -255,14 +268,14 @@ class MainWindow(QMainWindow):
         self.addAction(run_act)
         self.statusBar().showMessage("Ready. Ctrl+Enter runs the current strategy.")
         if self.preset.count():
-            self.add_strategy(json.loads(Path(self.preset.itemData(0)).read_text()), Path(self.preset.itemData(0)))
+            self.add_strategy(read_strategy(Path(self.preset.itemData(0))), Path(self.preset.itemData(0)))
 
     # ---- strategies
     @property
-    def tab(self) -> StrategyTab | None:
+    def tab(self) -> TabBase | None:
         """The strategy in front, or the last one looked at when the Default tab is in front."""
         w = self.strategy_tabs.currentWidget()
-        if isinstance(w, StrategyTab):
+        if isinstance(w, TabBase):
             self._last_tab = w
             return w
         last = getattr(self, "_last_tab", None)
@@ -274,10 +287,15 @@ class MainWindow(QMainWindow):
     summary = property(lambda self: self.tab.summary)
     trades_table = property(lambda self: self.tab.trades_table)
 
-    def add_strategy(self, cfg: dict, path: Path | None = None) -> StrategyTab:
+    def add_strategy(self, cfg: dict | str, path: Path | None = None) -> TabBase:
+        """Open a strategy in a new tab: a settings dict (patch bay) or Python source (a .py file)."""
         used = {t.number for t in self.strategies}
         number = next(n for n in range(1, len(used) + 2) if n not in used)
-        tab = StrategyTab(cfg, path, number)
+        if isinstance(cfg, str):
+            tab = PythonTab(cfg, path, number)
+            tab.knobs_changed.connect(lambda: self.measurements.profit.knobs.set_tabs(self.strategies, self.tab))
+        else:
+            tab = StrategyTab(cfg, path, number)
         tab.hovered.connect(self.show_help)
         tab.status.connect(lambda m: self.statusBar().showMessage(m, 8000))
         tab.edited.connect(lambda t=tab: self.strategy_edited(t))
@@ -291,7 +309,7 @@ class MainWindow(QMainWindow):
 
     def close_strategy(self, index: int):
         w = self.strategy_tabs.widget(index)
-        if not isinstance(w, StrategyTab):
+        if not isinstance(w, TabBase):
             return
         if len(self.strategies) == 1:
             self.statusBar().showMessage("Keep at least one strategy open.", 5000)
@@ -301,7 +319,7 @@ class MainWindow(QMainWindow):
         w.deleteLater()
         self.strategies_changed()
 
-    def strategy_edited(self, tab: StrategyTab):
+    def strategy_edited(self, tab: TabBase):
         i = self.strategy_tabs.indexOf(tab)
         self.strategy_tabs.setTabText(i, tab.tab_text())
         self.strategy_tabs.setTabToolTip(i, tab.title())
@@ -313,7 +331,7 @@ class MainWindow(QMainWindow):
         cur = self.tab
         self.backtests.set_tabs(self.strategies, cur)
         self.data_page.set_tabs(self.strategies)
-        self.measurements.refresh(self.strategies)
+        self.measurements.refresh(self.strategies, cur)
 
     # ---- hover help (the line above the disclaimer)
     def show_help(self, text: str):
@@ -346,11 +364,18 @@ class MainWindow(QMainWindow):
         if not names:
             QMessageBox.warning(self, "No strategies", "No strategy plugin is switched on. See Plugins….")
             return
-        labels = [f"{n}: {plugin_doc('strategy', n)[:90]}" for n in names]
-        choice, ok = QInputDialog.getItem(self, "New strategy", "Trading rules to start from:", labels, 0, False)
+        py = "Python strategy: write decide(F, p) in code, with knobs"
+        labels = [py] + [f"Patch bay, {n}: {plugin_doc('strategy', n)[:80]}" for n in names]
+        choice, ok = QInputDialog.getItem(self, "New strategy", "Start from:", labels, 0, False)
         if not ok:
             return
-        name = names[labels.index(choice)]
+        if choice == py:
+            self.add_strategy(ps.new_file("My Python strategy"))
+            self.pages.setCurrentIndex(1)
+            self.statusBar().showMessage("New Python strategy. Edit decide(F, p); put the cursor on a number and "
+                                         "press Make knob to turn it on the Measurements page.", 10000)
+            return
+        name = names[labels.index(choice) - 1]
         examples = sorted(CONFIGS.glob("*.json")) + [Path(p["path"]) for p in plugin_presets()]
         self.add_strategy(builder.new_config(name, examples))
         self.pages.setCurrentIndex(1)
@@ -364,7 +389,10 @@ class MainWindow(QMainWindow):
 
     def catalogue_hover(self, item, _col):
         entry = self._catalogue_entry(item)
-        if entry:
+        if entry and entry[0] == "code":
+            kind_, doc, _ = CODE_MODULES[entry[1]]
+            self.show_help(f"Code module '{entry[1]}' ({kind_}): {doc} Double-click to add it to a Python strategy.")
+        elif entry:
             kind, name = entry
             self.show_help(f"{KIND_WORDS[kind]} '{name}': {plugin_doc(kind, name)} Double-click to add it.")
         else:
@@ -373,10 +401,23 @@ class MainWindow(QMainWindow):
     def catalogue_add(self, item, _col=0):
         entry = self._catalogue_entry(item)
         tab = self.tab
-        cfg = tab.config() if tab else None
-        if not entry or cfg is None:
+        if not entry or tab is None:
             return
         kind, name = entry
+        if kind == "code":
+            if tab.kind != "python":
+                self.statusBar().showMessage("Code modules go into strategies written in Python "
+                                             "(New… → Python strategy).", 8000)
+                return
+            tab.insert_module(CODE_MODULES[name][2], name)
+            return
+        if tab.kind == "python":
+            self.statusBar().showMessage(f"'{name}' is a patch-bay plugin; in a Python strategy use the Code modules "
+                                         "at the bottom of the library.", 8000)
+            return
+        cfg = tab.config()
+        if cfg is None:
+            return
         new, where = builder.add(cfg, kind, name)
         tab.apply_config(new, f"Added {KIND_WORDS[kind].lower()} '{name}' at {where}")
         tab.reveal(where.split(".")[-1] if kind in ("feature", "mapping") else where.split(".")[0])
@@ -413,6 +454,16 @@ class MainWindow(QMainWindow):
                     parent.addChild(child)
             parent.setData(0, Qt.UserRole, kinds[0])
             self.catalogue.addTopLevelItem(parent)
+        parent = QTreeWidgetItem([CODE_GROUP[0], CODE_GROUP[1], ""])
+        f = parent.font(0)
+        f.setBold(True)
+        parent.setFont(0, f)
+        for name, (kind_, doc, _code) in CODE_MODULES.items():
+            child = QTreeWidgetItem([name, doc, kind_])
+            child.setData(0, Qt.UserRole, "code")
+            child.setToolTip(1, doc)
+            parent.addChild(child)
+        self.catalogue.addTopLevelItem(parent)
         self.catalogue.expandAll()
         self.catalogue.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.catalogue.setColumnWidth(1, 260)
@@ -421,21 +472,27 @@ class MainWindow(QMainWindow):
     def fill_presets(self):
         self.preset.blockSignals(True)
         self.preset.clear()
-        for p in sorted(CONFIGS.glob("*.json")):
-            self.preset.addItem(p.stem, str(p))
+        for p in sorted(CONFIGS.glob("*.json")) + sorted(CONFIGS.glob("*.py")):
+            self.preset.addItem(p.stem + (" (Python)" if p.suffix == ".py" else ""), str(p))
         for p in plugin_presets():  # strategy families shipped in plugin folders
             self.preset.addItem(f"{p['name']} ({p['plugin']})", p["path"])
-        for p in sorted(USER_DIR.glob("*.json")) if USER_DIR.exists() else []:
-            self.preset.addItem(f"{p.stem} (mine)", str(p))
+        mine = (sorted(USER_DIR.glob("*.json")) + sorted(USER_DIR.glob("*.py"))) if USER_DIR.exists() else []
+        for p in mine:
+            self.preset.addItem(f"{p.stem} (mine{', Python' if p.suffix == '.py' else ''})", str(p))
         self.preset.blockSignals(False)
 
     def load_preset(self, idx):
         """Load a preset into the strategy in front."""
         path = Path(self.preset.itemData(idx))
-        if self.tab is None:
-            self.add_strategy(json.loads(path.read_text()), path)
+        content = read_strategy(path)
+        same_kind = self.tab is not None and (self.tab.kind == "python") == isinstance(content, str)
+        if not same_kind:  # a Python file and a patch-bay file can't share a tab
+            self.add_strategy(content, path)
+        elif isinstance(content, str):
+            self.tab.path = path
+            self.tab.editor.setPlainText(content)
         else:
-            self.tab.set_config(json.loads(path.read_text()), path)
+            self.tab.set_config(content, path)
         self.pages.setCurrentIndex(1)
 
     def show_plugins(self):
@@ -453,9 +510,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Plugins reloaded.", 5000)
 
     def open_file(self):
-        fn, _ = QFileDialog.getOpenFileName(self, "Open strategy", str(USER_DIR if USER_DIR.exists() else CONFIGS), "JSON (*.json)")
+        fn, _ = QFileDialog.getOpenFileName(self, "Open strategy", str(USER_DIR if USER_DIR.exists() else CONFIGS),
+                                            "Strategies (*.json *.py)")
         if fn:
-            self.add_strategy(json.loads(Path(fn).read_text()), Path(fn))
+            self.add_strategy(read_strategy(Path(fn)), Path(fn))
             self.pages.setCurrentIndex(1)
 
     def save_file(self):
@@ -464,9 +522,11 @@ class MainWindow(QMainWindow):
         if cfg is None:
             return
         USER_DIR.mkdir(parents=True, exist_ok=True)
-        fn, _ = QFileDialog.getSaveFileName(self, "Save strategy", str(USER_DIR / "my_strategy.json"), "JSON (*.json)")
+        py = tab.kind == "python"
+        fn, _ = QFileDialog.getSaveFileName(self, "Save strategy", str(USER_DIR / ("my_strategy.py" if py else "my_strategy.json")),
+                                            "Python (*.py)" if py else "JSON (*.json)")
         if fn:
-            Path(fn).write_text(json.dumps(cfg, indent=2))
+            Path(fn).write_text(tab.source() if py else json.dumps(cfg, indent=2))
             tab.path = Path(fn)
             self.statusBar().showMessage(f"Saved {fn}", 5000)
 
@@ -509,16 +569,24 @@ class MainWindow(QMainWindow):
         self.backtests.run_sel.setEnabled(True)
         self.backtests.run_all.setEnabled(True)
         self.backtests.set_running(set())
+        pending, self._pending_knob = getattr(self, "_pending_knob", None), None
+        if pending in self.strategies:
+            self.run_tab(pending, quiet=True)
 
     def show_error(self, msg: str):
         self.statusBar().showMessage("Run failed")
         QMessageBox.critical(self, "Run failed", msg)
 
-    def _checked_config(self, tab: StrategyTab) -> dict | None:
+    def _checked_config(self, tab: TabBase, quiet: bool = False) -> dict | None:
         cfg = tab.config()
         if cfg is None:
+            if tab.kind == "python":
+                self.statusBar().showMessage(f"{tab.title()}: " + "; ".join(ps.check(tab.source())), 10000)
             return None
         probs = validate(cfg)
+        if probs and quiet:
+            self.statusBar().showMessage(f"{tab.title()}: " + "; ".join(probs), 10000)
+            return None
         if probs:
             QMessageBox.warning(self, "Settings problem", f"{tab.title()}:\n" + "\n".join(probs))
             return None
@@ -526,8 +594,11 @@ class MainWindow(QMainWindow):
 
     def run(self):
         """Backtest the strategy in front, exactly as written. Tests are run from the Backtests page."""
-        tab = self.tab
-        cfg = self._checked_config(tab) if tab else None
+        if self.tab:
+            self.run_tab(self.tab)
+
+    def run_tab(self, tab: TabBase, quiet: bool = False):
+        cfg = self._checked_config(tab, quiet)
         if cfg is None:
             return
 
@@ -538,7 +609,23 @@ class MainWindow(QMainWindow):
         if self.start_job(work, lambda out, t=tab: self._strategy_done(t, *out), label=f"Running {tab.title()}…"):
             self.run_btn.setText("Running…")
 
-    def _strategy_done(self, tab: StrategyTab, run, report):
+    def knob_turned(self, tab, name: str, value):
+        """A knob moved on the Measurements page: re-run that strategy with the new value."""
+        if tab is None:
+            return
+        tab.set_knob(name, value)
+        if self._thread is not None:
+            self._pending_knob = tab  # run again with the latest values when the current job ends
+            return
+        self.run_tab(tab, quiet=True)
+
+    def knobs_reset(self, tab):
+        tab.knob_values = {}
+        tab.on_edit(initial=True)
+        self.measurements.profit.knobs.set_tabs(self.strategies, tab)
+        self.run_tab(tab, quiet=True)
+
+    def _strategy_done(self, tab: TabBase, run, report):
         self.run_btn.setText("Run strategy")
         if tab not in self.strategies:
             return
@@ -547,7 +634,7 @@ class MainWindow(QMainWindow):
         self.strategies_changed()
         self.statusBar().showMessage(f"{tab.title()} done in {report['elapsed_s']} s", 8000)
 
-    def run_tests(self, tab: StrategyTab, specs: list[dict]):
+    def run_tests(self, tab: TabBase, specs: list[dict]):
         """Run tests on a strategy one at a time; each result shows as soon as it is ready.
         The strategy is (re)run first if it has no result or its settings changed."""
         cfg = self._checked_config(tab)

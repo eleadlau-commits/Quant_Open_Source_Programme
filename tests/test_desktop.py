@@ -325,3 +325,61 @@ def test_app_icon_has_every_size():
     QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     sizes = {s.width() for s in app_icon().availableSizes()}
     assert {16, 24, 32, 48, 64, 128, 256} <= sizes
+
+
+def test_python_strategy_tab_knobs_and_code_modules():
+    import json
+    from honestbt import pystrategy as ps
+    from honestbt.desktop.app import MainWindow
+    from honestbt.desktop.python_tab import PythonTab
+    app = _app()
+    w = MainWindow()
+    i = w.preset.findText("momentum_rotation (Python)")
+    assert i >= 0
+    w.load_preset(i)  # a Python file opens in its own tab
+    tab = w.tab
+    assert isinstance(tab, PythonTab) and tab.key == "S2"
+    w.resize(1400, 900)
+    w.show()
+    app.processEvents()
+    tab.bay.repaint()
+    names = [b["name"] for _, b in tab.bay.boxes]
+    assert names[0] == "data" and "momentum" in names and "decide" in names and names[-1] == "engine"
+    w.run()
+    w.wait(60)
+    assert "Profit" in tab.summary.text()
+    before = tab.report["selected"]["equity"]["v"][-1]
+    # the knob panel on the Measurements page shows this strategy's knobs; letting go re-runs it
+    panel = w.measurements.profit.knobs
+    assert panel.current() is tab and set(panel.sliders) == {"days", "top", "min_price"}
+    panel.turn("days", 30)
+    w.wait(60)
+    assert tab.knob_values == {"days": 30}
+    assert tab.report["selected"]["equity"]["v"][-1] != before
+    assert 'knob("days", 10' in tab.source()  # code unchanged until written
+    panel.write.emit(tab)
+    assert 'knob("days", 30' in tab.source() and tab.knob_values == {}
+    # make a number a knob from the editor
+    src = tab.source()
+    line = next(n for n, l in enumerate(src.splitlines(), 1) if "5e6" in l)
+    col = src.splitlines()[line - 1].index("5e6") + 1
+    from PySide6.QtGui import QTextCursor
+    c = tab.editor.textCursor()
+    c.setPosition(tab.editor.document().findBlockByNumber(line - 1).position() + col)
+    tab.editor.setTextCursor(c)
+    tab.make_knob()
+    assert "k" + str(line) in {k["name"] for k in ps.knobs(tab.source())}
+    # a code module from the library goes above decide()
+    lib = next(w.catalogue.topLevelItem(i) for i in range(w.catalogue.topLevelItemCount())
+               if w.catalogue.topLevelItem(i).text(0) == "Code modules")
+    vol = next(lib.child(i) for i in range(lib.childCount()) if lib.child(i).text(0) == "volatility")
+    w.catalogue_add(vol)
+    assert tab.source().index("def volatility") < tab.source().index("def decide")
+    # ticking a test on the Backtests page writes it into SETTINGS
+    row = next(r for r in w.backtests.rows() if r.data(0, QtCore.Qt.UserRole) == "deflated_sharpe")
+    row.setCheckState(1, QtCore.Qt.Checked)
+    app.processEvents()
+    assert {"plugin": "deflated_sharpe"} in ps.settings(tab.source())["evaluators"]
+    w.backtests.request(["benchmark"])
+    w.wait(60)
+    assert tab.results["benchmark"]["headline"].startswith("Excess over the default strategy")
