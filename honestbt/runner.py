@@ -18,8 +18,28 @@ def load_data(spec: dict):
     if key not in _DATA_CACHE:
         if len(_DATA_CACHE) > 4:
             _DATA_CACHE.clear()
-        _DATA_CACHE[key] = get("data", spec["plugin"])(**spec.get("params", {}))
+        data = get("data", spec["plugin"])(**spec.get("params", {}))
+        attach_complementary(data, spec.get("complementary") or [])
+        _DATA_CACHE[key] = data
     return _DATA_CACHE[key]
+
+
+def attach_complementary(data, specs: list[dict]) -> None:
+    """Load complementary data C_j(t) (news, events, income...) next to the prices.
+
+    Each plugin returns {name: Series or DataFrame} indexed by the time each value
+    became known. Strategies read it through the guarded view, so only values
+    known at decision time are visible."""
+    import pandas as pd
+
+    for spec in specs:
+        out = get("complementary", spec["plugin"])(data, **spec.get("params", {}))
+        for name, obj in out.items():
+            if not isinstance(obj, (pd.Series, pd.DataFrame)):
+                raise TypeError(f"complementary data {name!r} from {spec['plugin']!r} must be a pandas Series or DataFrame")
+            obj = obj.copy()
+            obj.index = pd.DatetimeIndex(obj.index)
+            data.series[name] = obj.sort_index()
 
 
 class StrategyRun:

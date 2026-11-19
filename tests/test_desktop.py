@@ -383,3 +383,31 @@ def test_python_strategy_tab_knobs_and_code_modules():
     w.backtests.request(["benchmark"])
     w.wait(60)
     assert tab.results["benchmark"]["headline"].startswith("Excess over the default strategy")
+
+
+def test_time_frame_and_complementary_data():
+    import json
+    from honestbt.desktop.app import MainWindow
+    app = _app()
+    w = MainWindow()
+    cfg = json.loads(w.editor.toPlainText())
+    cfg["data"]["params"].update(n_symbols=15, n_days=80)
+    w.editor.setPlainText(json.dumps(cfg))
+    try:
+        w.data_page.set_time_frame({"start": "2024-02-01", "end": "2024-03-15"})
+        w.run()
+        w.wait(60)
+        eq = w.tab.report["selected"]["equity"]["t"]
+        assert eq and eq[0] >= "2024-02-01" and eq[-1] <= "2024-03-16"
+        d = w.tab.report["default_equity"]["t"]
+        assert d[0][:10] >= "2024-02-01" and d[-1][:10] <= "2024-03-15"
+    finally:
+        w.data_page.set_time_frame(None)
+    # attach complementary data to the dataset of every strategy using it
+    w.data_page.table.selectRow(0)
+    w.add_complementary(json.loads(w.editor.toPlainText())["data"], {"plugin": "synthetic_events"})
+    assert json.loads(w.editor.toPlainText())["data"]["complementary"] == [{"plugin": "synthetic_events"}]
+    w.run()
+    w.wait(60)
+    assert "earnings_surprise" in w.data_page.table.item(0, 6).text()
+    app.processEvents()

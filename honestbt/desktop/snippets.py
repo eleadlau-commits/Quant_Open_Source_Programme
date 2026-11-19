@@ -40,6 +40,13 @@ def premarket_gap(F, symbol):
     pm = F.premarket_last(symbol)
     return pm / c[-1] - 1 if len(c) and pm == pm else None
 '''),
+    "latest_event": ("Data → Data", "Latest complementary value known now (news, events, income).", '''
+def latest_event(F, symbol, name="earnings_surprise"):
+    """Data -> Data: the latest complementary value for symbol known at decision time (or None)."""
+    if name not in F.series_names():
+        return None
+    return F.series_last(name, symbol)
+'''),
     "top_n_equal_weight": ("Data → Buy/Sell", "Hold the n best-scoring names, equal weight.", '''
 def top_n_equal_weight(scores, n):
     """Data -> Buy/Sell: hold the n highest scores ({symbol: score}), equal weight."""

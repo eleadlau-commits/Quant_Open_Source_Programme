@@ -58,7 +58,7 @@ UI = {
 }
 
 KIND_WORDS = {"data": "Data source", "feature": "Feature", "mapping": "Mapping (patch cable)", "signal": "Exit signal",
-              "strategy": "Strategy", "evaluator": "Test"}
+              "strategy": "Strategy", "evaluator": "Test", "complementary": "Complementary data"}
 
 
 def _walk_plugins(obj, out: set):
