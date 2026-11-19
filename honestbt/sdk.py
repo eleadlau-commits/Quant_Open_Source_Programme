@@ -17,12 +17,14 @@ from .data.guard import GuardedView, LookAheadError
 from .data.model import CLOSE_MIN, MINUTE, OPEN_MIN, DailyBars, MarketData, minutes_of_day, monday_week
 from .engine import RunResult, Trade, summarize
 from .evaluators import EvalContext, Verdict, period_sharpe
+from .baseline import hold_everything
 from .patchbay import get_path, with_overrides
+from .pystrategy import knob
 from .registry import Param, register
 from .signals import EntryContext, Path, run_signal
 from .strategies.base import Entry, Strategy
 
-API_VERSION = 1
+API_VERSION = 2  # 2: knob, hold_everything
 
 NAN = float("nan")
 
@@ -42,4 +44,5 @@ __all__ = [
     "Path", "EntryContext", "run_signal",
     "Verdict", "EvalContext", "RunResult", "Trade", "summarize", "period_sharpe",
     "get_path", "with_overrides",
+    "knob", "hold_everything",
 ]

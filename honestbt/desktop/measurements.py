@@ -15,8 +15,8 @@ import pandas as pd
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QHBoxLayout, QHeaderView, QLabel, QListWidget, QListWidgetItem, QPushButton,
-    QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QHeaderView, QLabel, QListWidget, QListWidgetItem,
+    QPushButton, QSlider, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 PASS, FAIL = QColor("#1f8a4c"), QColor("#c0392b")
@@ -195,6 +195,117 @@ class TimeChart(QWidget):
         p.end()
 
 
+class KnobPanel(QWidget):
+    """Sliders for the knobs of a strategy written in Python. Letting go of a slider re-runs that strategy."""
+
+    turned = Signal(object, str, object)   # strategy tab, knob name, new value
+    write = Signal(object)                 # write the current values into the code as defaults
+    reset = Signal(object)
+
+    STEPS = 200
+
+    def __init__(self):
+        super().__init__()
+        self.tabs: list = []
+        self.strategy = QComboBox()
+        self.strategy.setToolTip("Which strategy's knobs to show (strategies written in Python).")
+        self.strategy.currentIndexChanged.connect(self.rebuild)
+        self.form = QFormLayout()
+        self.form.setLabelAlignment(Qt.AlignRight)
+        self.note = QLabel()
+        self.note.setWordWrap(True)
+        self.note.setStyleSheet("color: gray;")
+        write = QPushButton("Write into code")
+        write.setToolTip("Make the current knob positions the defaults in the strategy's code.")
+        write.clicked.connect(lambda: self.current() and self.write.emit(self.current()))
+        reset = QPushButton("Reset")
+        reset.setToolTip("Put every knob back to the value written in the code.")
+        reset.clicked.connect(lambda: self.current() and self.reset.emit(self.current()))
+        btns = QHBoxLayout()
+        btns.addWidget(write)
+        btns.addWidget(reset)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(QLabel("<b>Knobs</b>"))
+        lay.addWidget(self.strategy)
+        lay.addLayout(self.form)
+        lay.addLayout(btns)
+        lay.addWidget(self.note)
+        lay.addStretch()
+
+    def current(self):
+        i = self.strategy.currentIndex()
+        return self.tabs[i] if 0 <= i < len(self.tabs) else None
+
+    def set_tabs(self, tabs: list, prefer=None):
+        keep = prefer if prefer in tabs else self.current()
+        self.tabs = [t for t in tabs if getattr(t, "kind", "") == "python"]
+        self.strategy.blockSignals(True)
+        self.strategy.clear()
+        for t in self.tabs:
+            self.strategy.addItem(t.title())
+        if keep in self.tabs:
+            self.strategy.setCurrentIndex(self.tabs.index(keep))
+        self.strategy.blockSignals(False)
+        self.rebuild()
+
+    def rebuild(self):
+        while self.form.rowCount():
+            self.form.removeRow(0)
+        self.sliders = {}
+        tab = self.current()
+        if tab is None:
+            self.note.setText("Strategies written in Python get knobs: put the cursor on a number in the code and "
+                              "press Make knob. New… → Python strategy starts one.")
+            return
+        knobs = [k for k in tab.knobs() if isinstance(k["default"], (int, float)) and k["lo"] is not None]
+        if not knobs:
+            self.note.setText(f"{tab.key} has no knobs yet. Put the cursor on a number in its code and press Make knob.")
+            return
+        self.note.setText("Let go of a slider to re-run the strategy with that value. The code is not changed "
+                          "until you press Write into code.")
+        for k in knobs:
+            val = tab.knob_values.get(k["name"], k["default"])
+            sl = QSlider(Qt.Horizontal)
+            lo, hi = float(k["lo"]), float(k["hi"])
+            if k["int"]:
+                sl.setRange(int(lo), int(hi))
+                sl.setValue(int(val))
+            else:
+                sl.setRange(0, self.STEPS)
+                sl.setValue(round((float(val) - lo) / (hi - lo) * self.STEPS) if hi > lo else 0)
+            lbl = QLabel(self._fmt(val, k))
+            lbl.setMinimumWidth(56)
+            row = QHBoxLayout()
+            row.addWidget(sl, 1)
+            row.addWidget(lbl)
+            sl.valueChanged.connect(lambda _v, k=k, sl=sl, lbl=lbl: lbl.setText(self._fmt(self._value(k, sl), k)))
+            sl.sliderReleased.connect(lambda k=k, sl=sl: self.turned.emit(self.current(), k["name"], self._value(k, sl)))
+            sl.setToolTip(f"{k['name']}: from {k['lo']} to {k['hi']} (written in the code as {k['default']})")
+            self.sliders[k["name"]] = (sl, k)
+            self.form.addRow(k["name"], row)
+
+    def _value(self, k, sl):
+        if k["int"]:
+            return int(sl.value())
+        lo, hi = float(k["lo"]), float(k["hi"])
+        return round(lo + (hi - lo) * sl.value() / self.STEPS, 6)
+
+    @staticmethod
+    def _fmt(v, k):
+        return str(int(v)) if k["int"] else f"{float(v):.4g}"
+
+    def turn(self, name: str, value):
+        """Move a slider as if by hand and let go (used by tests)."""
+        sl, k = self.sliders[name]
+        if k["int"]:
+            sl.setValue(int(value))
+        else:
+            lo, hi = float(k["lo"]), float(k["hi"])
+            sl.setValue(round((float(value) - lo) / (hi - lo) * self.STEPS))
+        sl.sliderReleased.emit()
+
+
 class ProfitTab(QWidget):
     """Profit of the strategies you tick, plus the default strategy, over a time frame you choose."""
 
@@ -242,6 +353,7 @@ class ProfitTab(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setMaximumHeight(170)
+        self.knobs = KnobPanel()
         right = QWidget()
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
@@ -251,7 +363,8 @@ class ProfitTab(QWidget):
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
         split.addWidget(right)
-        split.setSizes([220, 1000])
+        split.addWidget(self.knobs)
+        split.setSizes([220, 900, 280])
         lay = QVBoxLayout(self)
         lay.addWidget(split)
 
@@ -319,8 +432,8 @@ class ProfitTab(QWidget):
                 t.setItem(r, c, QTableWidgetItem(v))
             if st:
                 t.item(r, 1).setForeground(PASS if st[0] > 0 else FAIL)
-        t.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         t.resizeColumnsToContents()
+        t.horizontalHeader().setStretchLastSection(True)
 
 
 class MeasurementsPage(QTabWidget):
@@ -332,8 +445,9 @@ class MeasurementsPage(QTabWidget):
         self.addTab(self.profit, "Profit")
         self.setTabToolTip(0, "Profit over time. For now profit is the only measure of success.")
 
-    def refresh(self, strategies: list) -> None:
-        """strategies: StrategyTab objects; those with a result are measured."""
+    def refresh(self, strategies: list, current=None) -> None:
+        """strategies: strategy tabs; those with a result are measured. ``current`` picks whose knobs show."""
+        self.profit.knobs.set_tabs(strategies, current)
         entries, defaults = [], {}
         for tab in strategies:
             rep = tab.report
