@@ -12,7 +12,7 @@ from honestbt.sdk import EvalContext, Param, Verdict, register
 
 @register("evaluator", "parameter_stability", params=[
     Param("min_share", "float", 0.7, "Share of sweep points that must be profitable"),
-], doc="Is the whole neighbourhood of parameters profitable, or just one lucky point?")
+], doc="Is the whole neighbourhood of parameters profitable, or just one lucky point? Needs a sweep of 3 or more variants, so it shows N/A for a strategy run as written.")
 def parameter_stability(ectx: EvalContext, min_share=0.7):
     if len(ectx.points) < 3:
         return Verdict("Parameter stability", None, "Sweep too small",

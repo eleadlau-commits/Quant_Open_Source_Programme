@@ -1,4 +1,6 @@
-"""Measurements page: one tab per measure of success. For now there is one, Profit.
+"""Compare page: one tab per measure of success. For now there is one, Profit.
+
+Also the chart and knob widgets the strategy pages and the Home page use.
 
 The Profit tab draws the profit of every strategy you tick over time, on a real
 time axis so strategies with different trading days line up, plus the default
@@ -20,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 PASS, FAIL = QColor("#1f8a4c"), QColor("#c0392b")
-COLORS = ["#2f5bd3", "#c0841a", "#8e44ad", "#16a085", "#d35400", "#2c3e50", "#b4635e"]
+COLORS = ["#2f5bd3", "#c0841a", "#8e44ad", "#16a085", "#d35400", "#5d8aa8", "#b4635e"]
 DEFAULT_COLOR = QColor("#8a8a84")
 DAY = 86400.0
 FRAMES = [("All", None), ("5 years", 5 * 365), ("1 year", 365), ("6 months", 182), ("3 months", 91), ("1 month", 30)]
@@ -187,6 +189,17 @@ class TimeChart(QWidget):
             p.setClipRect(QRectF(L, 0, W - L - R, H))
             p.setPen(pen)
             p.drawPath(path)
+            marks = s.get("marks")
+            if marks is not None and len(marks):
+                m = np.asarray(marks, float)
+                m = m[(m >= t[0]) & (m <= t[-1])]
+                if len(m):
+                    idx = np.clip(np.searchsorted(t, m, "right") - 1, 0, len(t) - 1)
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(s["color"])
+                    for tt, yy in zip(m, y[idx]):
+                        p.drawEllipse(QPointF(X(tt), Y(yy)), 2.6, 2.6)
+                    p.setBrush(Qt.NoBrush)
             p.setClipping(False)
             p.setPen(s["color"])
             label = s["label"] if len(s["label"]) <= 34 else s["label"][:33] + "…"
@@ -226,7 +239,6 @@ class KnobPanel(QWidget):
         btns.addWidget(reset)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(QLabel("<b>Knobs</b>"))
         lay.addWidget(self.strategy)
         lay.addLayout(self.form)
         lay.addLayout(btns)
@@ -256,7 +268,7 @@ class KnobPanel(QWidget):
         tab = self.current()
         if tab is None:
             self.note.setText("Strategies written in Python get knobs: put the cursor on a number in the code and "
-                              "press Make knob. New… → Python strategy starts one.")
+                              "press Make knob. The + next to the tabs starts a new one.")
             return
         knobs = [k for k in tab.knobs() if isinstance(k["default"], (int, float)) and k["lo"] is not None]
         if not knobs:
@@ -326,7 +338,7 @@ class ProfitTab(QWidget):
         ll.setContentsMargins(0, 0, 0, 0)
         ll.addWidget(QLabel("<b>Strategies</b>"))
         ll.addWidget(self.picker, 1)
-        ll.addWidget(self.show_default)
+        self.show_default.setVisible(False)  # set on the Home page, for every chart
 
         self.frame = QComboBox()
         for label, days in FRAMES:
@@ -353,7 +365,6 @@ class ProfitTab(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setMaximumHeight(170)
-        self.knobs = KnobPanel()
         right = QWidget()
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
@@ -363,8 +374,7 @@ class ProfitTab(QWidget):
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
         split.addWidget(right)
-        split.addWidget(self.knobs)
-        split.setSizes([220, 900, 280])
+        split.setSizes([240, 1000])
         lay = QVBoxLayout(self)
         lay.addWidget(split)
 
@@ -397,15 +407,7 @@ class ProfitTab(QWidget):
         return shown
 
     def redraw(self):
-        series, k = [], 0
-        for e in self.visible():
-            if e.get("default"):
-                color = DEFAULT_COLOR
-            else:
-                color = QColor(COLORS[k % len(COLORS)])
-                k += 1
-            series.append({"label": e["label"], "t": e["t"], "v": e["v"], "color": color, "dashed": e.get("default")})
-        self.chart.set_series(series)
+        self.chart.set_series(series_for(self.visible()))
 
     def fill_table(self):
         win = self.chart.window()
@@ -437,7 +439,7 @@ class ProfitTab(QWidget):
 
 
 class MeasurementsPage(QTabWidget):
-    """One tab per measure of success."""
+    """The Compare page: strategies next to each other, one tab per measure of success."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -446,24 +448,51 @@ class MeasurementsPage(QTabWidget):
         self.setTabToolTip(0, "Profit over time. For now profit is the only measure of success.")
 
     def refresh(self, strategies: list, current=None) -> None:
-        """strategies: strategy tabs; those with a result are measured. ``current`` picks whose knobs show."""
-        self.profit.knobs.set_tabs(strategies, current)
-        entries, defaults = [], {}
-        for tab in strategies:
-            rep = tab.report
-            if not rep:
-                continue
-            eq = rep["selected"]["equity"]
-            trades = [dict(tr, _t=float(_secs([tr["entry_time"]])[0])) for tr in rep["selected"]["trades"]]
-            # start the curve at 1 just before the first period, so the first period's profit shows
-            t = _secs(eq["t"])
-            v = np.asarray(eq["v"], float)
-            if len(t):
-                t, v = np.r_[t[0] - 1.0, t], np.r_[1.0, v]
-            ds = rep["data"]
-            entries.append({"key": tab.key, "label": tab.title(), "t": t, "v": v, "trades": trades, "dataset": ds})
-            if ds not in defaults and rep.get("default_equity"):
-                d = rep["default_equity"]
-                defaults[ds] = {"key": "default:" + ds, "label": f"Default: hold everything ({tab.dataset_label()})",
-                                "t": _secs(d["t"]), "v": np.asarray(d["v"], float), "dataset": ds, "default": True}
-        self.profit.set_entries(entries + list(defaults.values()))
+        """strategies: strategy tabs; those with a result are compared."""
+        self.profit.set_entries(entries(strategies))
+
+
+def curves(report: dict) -> tuple[dict, dict | None]:
+    """A run's profit curve (growth of 1, starting at 1 just before the first period, with trade entry
+    times as marks) and its dataset's default-strategy curve, as arrays of seconds and values."""
+    eq = report["selected"]["equity"]
+    t = _secs(eq["t"])
+    v = np.asarray(eq["v"], float)
+    if len(t):
+        t, v = np.r_[t[0] - 1.0, t], np.r_[1.0, v]
+    trades = report["selected"]["trades"]
+    marks = _secs([tr["entry_time"] for tr in trades]) if trades else np.array([])
+    d = report.get("default_equity")
+    default = {"t": _secs(d["t"]), "v": np.asarray(d["v"], float)} if d and d.get("t") else None
+    return {"t": t, "v": v, "marks": np.sort(marks)}, default
+
+
+def entries(strategies: list) -> list[dict]:
+    """Curves of every strategy that has a result, plus one default-strategy curve per dataset."""
+    out, defaults = [], {}
+    for tab in strategies:
+        rep = tab.report
+        if not rep:
+            continue
+        own, default = curves(rep)
+        trades = [dict(tr, _t=float(_secs([tr["entry_time"]])[0])) for tr in rep["selected"]["trades"]]
+        ds = rep["data"]
+        out.append({"key": tab.key, "label": tab.title(), "t": own["t"], "v": own["v"], "trades": trades,
+                    "dataset": ds})
+        if ds not in defaults and default is not None:
+            defaults[ds] = {"key": "default:" + ds, "label": f"Default: hold everything ({tab.dataset_label()})",
+                            "t": default["t"], "v": default["v"], "dataset": ds, "default": True}
+    return out + list(defaults.values())
+
+
+def series_for(entries_: list[dict]) -> list[dict]:
+    """Chart series for entries: a colour per strategy, the default strategy grey and dashed."""
+    series, k = [], 0
+    for e in entries_:
+        if e.get("default"):
+            color = DEFAULT_COLOR
+        else:
+            color = QColor(COLORS[k % len(COLORS)])
+            k += 1
+        series.append({"label": e["label"], "t": e["t"], "v": e["v"], "color": color, "dashed": e.get("default")})
+    return series

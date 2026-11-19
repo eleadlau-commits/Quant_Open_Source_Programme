@@ -1,11 +1,13 @@
-"""Data page: the datasets your strategies use, and the global data every strategy can draw on."""
+"""Data page: the datasets your strategies use, and the global data every strategy can draw on.
+
+The time frame and trading-cost settings apply to every run, so they live on the Home page."""
 from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import QDate, QSettings, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QDateEdit, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QPushButton, QSplitter, QTableWidget,
+    QHBoxLayout, QHeaderView, QInputDialog, QLabel, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -31,44 +33,10 @@ def describe(spec: dict) -> str:
 class DataPage(QWidget):
     load_requested = Signal(dict)            # a data spec to load and measure
     add_complementary = Signal(dict, dict)   # dataset spec, complementary spec to add to it
-    time_frame_changed = Signal()
     hovered = Signal(str)
 
-    def __init__(self, settings: QSettings | None = None):
+    def __init__(self):
         super().__init__()
-        self.settings = settings or QSettings("Titanium", "Titanium")
-        # ---- time frame: applies to every strategy run
-        self.whole = QCheckBox("Whole dataset")
-        self.whole.setToolTip("Untick to run every strategy only over the dates below.")
-        self.start, self.end = QDateEdit(), QDateEdit()
-        for w in (self.start, self.end):
-            w.setCalendarPopup(True)
-            w.setDisplayFormat("yyyy-MM-dd")
-            w.setToolTip("Strategies only decide on days inside the time frame.")
-        s = self.settings.value("data/time_frame", None)
-        self.whole.setChecked(not s)
-        self.start.setDate(QDate.fromString((s or {}).get("start", "2024-01-01") if isinstance(s, dict) else "2024-01-01", "yyyy-MM-dd"))
-        self.end.setDate(QDate.fromString((s or {}).get("end", "2024-12-31") if isinstance(s, dict) else "2024-12-31", "yyyy-MM-dd"))
-        self.whole.toggled.connect(self._tf_changed)
-        self.start.dateChanged.connect(self._tf_changed)
-        self.end.dateChanged.connect(self._tf_changed)
-        tf = QHBoxLayout()
-        tf.addWidget(QLabel("<b>Time frame</b>"))
-        tf.addWidget(self.whole)
-        tf.addWidget(QLabel("from"))
-        tf.addWidget(self.start)
-        tf.addWidget(QLabel("to"))
-        tf.addWidget(self.end)
-        tf.addSpacing(24)
-        self.no_costs = QCheckBox("Last-traded price only (no spread or slippage cost)")
-        self.no_costs.setToolTip("On: fills at the last traded price with no trading cost. Off (default): every fill "
-                                 "pays an assumed half-spread plus slippage, about 8 basis points (5 + 3), more "
-                                 "right after the open. The Cost stress test always uses real costs.")
-        self.no_costs.setChecked(self.settings.value("data/no_costs", False, type=bool))
-        self.no_costs.toggled.connect(self._costs_changed)
-        tf.addWidget(self.no_costs)
-        tf.addStretch()
-        self._sync_tf()
         self.stats: dict[str, dict] = {}   # data key -> dataset_stats
         self.specs: dict[str, dict] = {}   # data key -> spec
         self.table = QTableWidget()
@@ -111,34 +79,8 @@ class DataPage(QWidget):
         split.addWidget(right)
         split.setSizes([620, 620])
         lay = QVBoxLayout(self)
-        lay.addLayout(tf)
         lay.addWidget(split)
         self.fill_tree()
-
-    # ---- time frame
-    def time_frame(self) -> dict | None:
-        if self.whole.isChecked():
-            return None
-        return {"start": self.start.date().toString("yyyy-MM-dd"), "end": self.end.date().toString("yyyy-MM-dd")}
-
-    def set_time_frame(self, tf: dict | None):
-        self.whole.setChecked(tf is None)
-        if tf:
-            self.start.setDate(QDate.fromString(tf["start"], "yyyy-MM-dd"))
-            self.end.setDate(QDate.fromString(tf["end"], "yyyy-MM-dd"))
-
-    def _sync_tf(self):
-        for w in (self.start, self.end):
-            w.setEnabled(not self.whole.isChecked())
-
-    def _tf_changed(self, *_):
-        self._sync_tf()
-        self.settings.setValue("data/time_frame", self.time_frame() or "")
-        self.time_frame_changed.emit()
-
-    def _costs_changed(self, on: bool):
-        self.settings.setValue("data/no_costs", bool(on))
-        self.time_frame_changed.emit()  # same effect: results need a re-run
 
     def _add_comp(self):
         row = self.table.currentRow()
@@ -176,12 +118,12 @@ class DataPage(QWidget):
             if not it["name"].startswith("_"):
                 child = QTreeWidgetItem(comp, [it["name"], it["doc"]])
                 child.setToolTip(1, it["doc"])
-        gen = group("Generated data", "Measured from the data above at decision time (feature plugins).")
+        gen = group("Generated data", "Measured from the data above at decision time (Data → Data modules from packs).")
         for it in catalog().get("feature", []):
             if not it["name"].startswith("_"):
                 child = QTreeWidgetItem(gen, [it["name"], it["doc"]])
                 child.setToolTip(1, it["doc"])
-        src = group("Data sources", "Where datasets come from (data plugins).")
+        src = group("Data sources", "Where datasets come from (from packs).")
         for it in catalog().get("data", []):
             if not it["name"].startswith("_"):
                 child = QTreeWidgetItem(src, [it["name"], it["doc"]])

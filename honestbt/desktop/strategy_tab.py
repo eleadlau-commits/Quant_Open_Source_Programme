@@ -9,11 +9,12 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QFrame, QLabel, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..patchbay import validate
 from .help import UI
+from .measurements import TimeChart
 from .patchbay_view import PatchBayView
 from .widgets import HoverEditor
 
@@ -25,17 +26,27 @@ def pct(x, d=2):
     return "–" if x is None else f"{100 * x:+.{d}f}%"
 
 
+def tip_label(text: str, tip: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setToolTip(tip)
+    return lbl
+
+
 def clean(cfg: dict) -> dict:
     """Settings as the app uses them: the strategy exactly as written, no sweep."""
     return {k: v for k, v in cfg.items() if k != "sweep"}
 
 
 class TabBase(QWidget):
-    """What every strategy tab has: a name, a summary of the last run, its trades and its test results."""
+    """One strategy page: its editor on the left, its own Run button, profit chart and trades on the right."""
 
-    edited = Signal()      # settings changed (results are now out of date)
-    hovered = Signal(str)  # hover help text
-    status = Signal(str)   # a short message for the status bar
+    edited = Signal()        # settings changed (results are now out of date)
+    hovered = Signal(str)    # hover help text
+    status = Signal(str)     # a short message for the status bar
+    run_clicked = Signal()
+    save_clicked = Signal()
+    save_as_clicked = Signal()
+    backtests_clicked = Signal()
     kind = "patchbay"
 
     def _init_common(self, path, number):
@@ -46,18 +57,75 @@ class TabBase(QWidget):
         self.report: dict | None = None
         self.results: dict[str, dict] = {}  # test plugin -> verdict, from the Backtests page
         self.stale = False        # settings changed since the last run
-        self.summary = QLabel("Not run yet. Press Run strategy (Ctrl+Enter).")
+        self.show_default = True  # draw the default strategy next to this one
+        self.heading = QLabel()
+        self.heading.setTextFormat(Qt.RichText)
+        self.run_btn = QPushButton("▶  Run")
+        self.run_btn.setDefault(True)
+        self.run_btn.setToolTip("Backtest this strategy exactly as written (Ctrl+Enter). Tests run from the "
+                                "Backtests page.")
+        self.run_btn.setStyleSheet("QPushButton { font-weight: 600; padding: 4px 16px; }")
+        self.run_btn.clicked.connect(self.run_clicked)
+        save = QPushButton("Save")
+        save.setToolTip("Save this strategy to its file (Ctrl+S). A new strategy asks where.")
+        save.clicked.connect(self.save_clicked)
+        save_as = QPushButton("Save as…")
+        save_as.setToolTip("Save this strategy as a new file in Documents/Titanium.")
+        save_as.clicked.connect(self.save_as_clicked)
+        tests = QPushButton("Backtests…")
+        tests.setToolTip("Open the Backtests page for this strategy.")
+        tests.clicked.connect(self.backtests_clicked)
+        self.head = QHBoxLayout()
+        self.head.addWidget(self.heading, 1)
+        for b in (save, save_as, tests, self.run_btn):
+            self.head.addWidget(b)
+        self.summary = QLabel("Not run yet. Press Run (Ctrl+Enter).")
         self.summary.setWordWrap(True)
-        self.summary.setFrameShape(QFrame.StyledPanel)
-        self.summary.setMargin(6)
+        self.summary.setTextFormat(Qt.RichText)
         self.summary.setToolTip("The result of the last run of this strategy, exactly as written.")
         self.problems = QLabel()
         self.problems.setWordWrap(True)
         self.problems.setStyleSheet(f"color: {FAIL.name()};")
+        self.chart = TimeChart()
+        self.chart.setMinimumHeight(200)
         self.trades_table = QTableWidget()
         self.trades_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.trades_table.setSortingEnabled(True)
         self.trades_table.verticalHeader().setVisible(False)
+        self.trades_table.setToolTip(UI["Trades"])
+
+    def _finish(self, editor: QWidget):
+        """Lay out the page: header row, then the editor beside the results."""
+        results = QSplitter(Qt.Vertical)
+        top = QWidget()
+        tl = QVBoxLayout(top)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.addWidget(self.summary)
+        tl.addWidget(self.chart, 1)
+        low = QWidget()
+        ll = QVBoxLayout(low)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.addWidget(QLabel("<b>Trades</b> <span style='color:gray'>dots on the chart mark when each trade "
+                            "opened</span>"))
+        ll.addWidget(self.trades_table, 1)
+        results.addWidget(top)
+        results.addWidget(low)
+        results.setSizes([420, 300])
+        split = QSplitter(Qt.Horizontal)
+        split.addWidget(editor)
+        split.addWidget(results)
+        split.setSizes([620, 520])
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(6, 6, 6, 6)
+        lay.addLayout(self.head)
+        lay.addWidget(split, 1)
+        self.update_heading()
+
+    def update_heading(self):
+        what = "Python" if self.kind == "python" else "patch bay"
+        where = self.path.name if self.path else "not saved yet"
+        self.heading.setText(f"<b style='font-size:15px'>{self.name()}</b>&nbsp;&nbsp;"
+                             f"<span style='color:gray'>{what} · {where}</span>")
 
     # ---- naming
     def name(self) -> str:
@@ -94,9 +162,22 @@ class TabBase(QWidget):
         self.summary.setText(
             f"<b style='color:{color.name()}'>Profit {pct(profit)}{money}</b> over {span} · "
             f"{m.get('n_trades', 0)} trades · max drawdown {pct(m.get('max_drawdown'), 1)}"
-            f"<br><span style='color:gray'>{report['data']} · {report['elapsed_s']} s. "
-            f"See the Measurements page to compare, and Backtests to test it.</span>")
+            f" · <span style='color:gray'>{self.dataset_label()} · {report['elapsed_s']} s</span>")
         self.fill_trades(report["selected"]["trades"])
+        self.draw_chart()
+
+    def draw_chart(self):
+        from .measurements import DEFAULT_COLOR, curves
+        if not self.report:
+            self.chart.set_series([])
+            return
+        own, default = curves(self.report)
+        series = [{"label": self.title(), "t": own["t"], "v": own["v"], "color": QColor("#2f5bd3"),
+                   "marks": own["marks"]}]
+        if self.show_default and default is not None:
+            series.append({"label": f"Default: hold everything ({self.dataset_label()})", "t": default["t"],
+                           "v": default["v"], "color": DEFAULT_COLOR, "dashed": True})
+        self.chart.set_series(series)
 
     def fill_trades(self, trades):
         t = self.trades_table
@@ -146,28 +227,22 @@ class StrategyTab(TabBase):
         edit_page = QWidget()
         el = QVBoxLayout(edit_page)
         el.setContentsMargins(0, 0, 0, 0)
-        el.addWidget(self.editor)
+        el.addWidget(tip_label("<b>Settings</b> <span style='color:gray'>JSON · hover a word to see what it "
+                               "means</span>", UI["Settings (JSON)"]))
+        el.addWidget(self.editor, 1)
         el.addWidget(self.problems)
-        self.lower = QTabWidget()
-        self.lower.addTab(edit_page, "Settings (JSON)")
-        self.lower.addTab(self.trades_table, "Trades")
-        self.lower.setTabToolTip(0, UI["Settings (JSON)"])
-        self.lower.setTabToolTip(1, UI["Trades"])
 
         top = QWidget()
         tl = QVBoxLayout(top)
         tl.setContentsMargins(0, 0, 0, 0)
-        tl.addWidget(self.summary)
-        tl.addWidget(QLabel("<b>Patch bay</b> <span style='color:gray'>data and features → strategy → trading "
-                            "engine · drag ● outputs onto settings to wire · right-click for more</span>"))
+        tl.addWidget(QLabel("<b>Patch bay</b> <span style='color:gray'>drag ● outputs onto settings to wire · "
+                            "right-click for more</span>"))
         tl.addWidget(scroll, 1)
         split = QSplitter(Qt.Vertical)
         split.addWidget(top)
-        split.addWidget(self.lower)
-        split.setSizes([520, 360])
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 4, 4, 4)
-        lay.addWidget(split)
+        split.addWidget(edit_page)
+        split.setSizes([420, 380])
+        self._finish(split)
 
         self.editor.setPlainText(json.dumps(clean(cfg), indent=2))
         self.editor.textChanged.connect(self.on_edit)
@@ -200,7 +275,6 @@ class StrategyTab(TabBase):
             self.status.emit(what)
 
     def reveal(self, key: str):
-        self.lower.setCurrentIndex(0)
         self.editor.select_key(key)
 
     def on_edit(self, initial: bool = False):
@@ -213,21 +287,3 @@ class StrategyTab(TabBase):
         if not initial:
             self._mark_stale()
             self.edited.emit()
-
-class DefaultTab(QWidget):
-    """The default strategy: the yardstick every strategy is compared with."""
-
-    def __init__(self):
-        super().__init__()
-        text = QLabel(
-            "<h3>Default strategy: hold everything</h3>"
-            "<p>Spread the money evenly across every stock in the dataset and hold it. Each day the account is "
-            "split equally across every name that traded, so stocks that list later join in and stocks that "
-            "are delisted stay in until their last day. No trading costs.</p>"
-            "<p>It runs automatically on the dataset of every strategy you run. Tick <b>Show default "
-            "strategy</b> on the Measurements page to draw it next to your strategies.</p>"
-            "<p style='color:gray'>For a futures dataset with one contract it is simply holding that contract.</p>")
-        text.setWordWrap(True)
-        text.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        lay = QVBoxLayout(self)
-        lay.addWidget(text)

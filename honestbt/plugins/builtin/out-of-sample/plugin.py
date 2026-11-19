@@ -12,7 +12,7 @@ from honestbt.sdk import EvalContext, Param, Verdict, period_sharpe, register
 
 @register("evaluator", "out_of_sample", params=[
     Param("split", "float", 0.6, "Fraction of periods used to pick parameters"),
-], doc="Pick the best sweep point on the first part of history, then score it on the rest.")
+], doc="Score the strategy only on the later part of history (after the split). With a sweep, the best variant is picked on the earlier part first.")
 def out_of_sample(ectx: EvalContext, split=0.6):
     idx = ectx.points[0][2].periods.index
     if len(idx) < 8:
