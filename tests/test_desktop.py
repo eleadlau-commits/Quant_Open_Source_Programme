@@ -37,29 +37,30 @@ def test_no_costs_toggle_removes_trading_costs():
     cfg["data"]["params"].update(n_symbols=15, n_days=50)
     w.editor.setPlainText(json.dumps(cfg))
     try:
-        assert not w.data_page.no_costs.isChecked()  # off by default: costs are paid
+        assert not w.home.no_costs.isChecked()  # off by default: costs are paid
         assert w._checked_config(w.tab).get("costs", {}).get("multiplier", 1) != 0
-        w.data_page.no_costs.setChecked(True)
+        w.home.no_costs.setChecked(True)
         assert w._checked_config(w.tab)["costs"]["multiplier"] == 0.0
         w.run()
         w.wait(60)
         tr = w.tab.report["selected"]["trades"]
         assert tr and all(abs(t["gross_return"] - t["net_return"]) < 1e-12 for t in tr)
     finally:
-        w.data_page.no_costs.setChecked(False)
+        w.home.no_costs.setChecked(False)
 
 
 def _app():
     return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
 
-def test_window_has_four_pages_and_runs_strategy_without_tests():
+def test_window_has_home_a_tab_per_strategy_and_runs_strategy_without_tests():
     import json
     from honestbt.desktop.app import MainWindow
     _app()
     w = MainWindow()
-    assert [w.pages.tabText(i) for i in range(w.pages.count())] == ["Data", "Strategies", "Measurements", "Backtests"]
-    assert w.strategy_tabs.tabText(0) == "Default" and w.tab.key == "S1"
+    names = [w.pages.tabText(i) for i in range(w.pages.count())]
+    assert names[:2] == ["Home", "Data"] and names[2].startswith("S1") and names[3:] == ["Compare", "Backtests"]
+    assert w.pages.currentWidget() is w.home and w.tab.key == "S1"
     cfg = json.loads(w.editor.toPlainText())
     assert "sweep" not in cfg  # the app runs strategies exactly as written
     cfg["data"]["params"].update(n_symbols=15, n_days=50)
@@ -68,6 +69,8 @@ def test_window_has_four_pages_and_runs_strategy_without_tests():
     w.wait(60)
     assert "Profit" in w.summary.text()
     assert w.tab.report and not w.tab.results  # no test ran by itself
+    own = w.tab.chart.series  # the strategy page draws its own profit, trade marks and the default
+    assert own[0]["label"].startswith("S1") and len(own[0]["marks"]) and own[1]["label"].startswith("Default")
     labels = [s["label"] for s in w.measurements.profit.chart.series]
     assert labels[0].startswith("S1") and labels[1].startswith("Default")
     assert w.measurements.profit.table.rowCount() == 2
@@ -116,16 +119,16 @@ def test_strategy_tabs_compare_on_the_profit_page():
     from honestbt.desktop.app import MainWindow
     _app()
     w = MainWindow()
-    i = w.preset.findText("nq_orb_trend_filter")
-    assert i >= 0
-    cfg = json.loads(open(w.preset.itemData(i)).read())
+    row = w.home.find("nq_orb_trend_filter")
+    assert row is not None
+    cfg = json.loads(open(row["key"]).read())
     cfg["data"]["params"]["n_days"] = 80
     s2 = w.add_strategy(cfg)
     assert s2.key == "S2" and w.tab is s2
     w.run()
     w.wait(60)
     assert w.trades_table.horizontalHeaderItem(7).text() == "R"
-    w.strategy_tabs.setCurrentIndex(1)
+    w.pages.setCurrentWidget(w.strategies[0])
     c1 = json.loads(w.editor.toPlainText())
     c1["data"]["params"].update(n_symbols=15, n_days=50)
     w.editor.setPlainText(json.dumps(c1))
@@ -141,7 +144,7 @@ def test_strategy_tabs_compare_on_the_profit_page():
     prof.chart.zoom(0.5)
     a, b = prof.chart.window()
     assert b - a < full[1] - full[0]
-    w.close_strategy(w.strategy_tabs.indexOf(s2))
+    w.close_strategy(w.pages.indexOf(s2))
     assert [t.key for t in w.strategies] == ["S1"]
 
 
@@ -169,7 +172,7 @@ def test_plugins_window_switches_a_plugin_off_and_on():
     from honestbt.registry import has
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     w = MainWindow()
-    assert w.preset.findText("monday-gap-exit-family (gap-families)") >= 0
+    assert w.home.find("monday-gap-exit-family (gap-families pack)") is not None
     with plugins.isolated():
         dlg = PluginsDialog(w)
         dlg.changed.connect(w.plugins_changed)
@@ -178,7 +181,7 @@ def test_plugins_window_switches_a_plugin_off_and_on():
         app.processEvents()
         assert not has("evaluator", "bootstrap")
         assert any(s.id == "honest-tests" and s.state == "off" for s in dlg.rows)
-        assert w.preset.findText("monday-gap-exit-family (gap-families)") < 0  # needs the suites
+        assert w.home.find("monday-gap-exit-family (gap-families pack)") is None  # needs the suites
         row = next(i for i, s in enumerate(dlg.rows) if s.id == "bootstrap")
         dlg.table.item(row, 0).setCheckState(QtCore.Qt.Checked)
         assert has("evaluator", "bootstrap")
@@ -239,7 +242,7 @@ def test_hover_help_explains_words_in_the_settings():
     assert "Mapping" in explain("k_map", cfg)
     assert "How many names" in explain("top_n", cfg)
     assert "strategy family" in explain("sweep", cfg)
-    assert explain("bootstrap", cfg).startswith("Test plugin")
+    assert explain("bootstrap", cfg).startswith("Test module")
     assert explain("honest-stocks", cfg).startswith("Test suite")
     assert explain("zzz_nothing", cfg) is None
 
@@ -374,9 +377,9 @@ def test_python_strategy_tab_knobs_and_code_modules():
     from honestbt.desktop.python_tab import PythonTab
     app = _app()
     w = MainWindow()
-    i = w.preset.findText("momentum_rotation (Python)")
-    assert i >= 0
-    w.load_preset(i)  # a Python file opens in its own tab
+    row = w.home.find("momentum_rotation")
+    assert row is not None and row["kind"] == "Python"
+    w.home.open_requested.emit(row["key"])  # double-click on Home: a Python file opens in its own tab
     tab = w.tab
     assert isinstance(tab, PythonTab) and tab.key == "S2"
     w.resize(1400, 900)
@@ -389,9 +392,9 @@ def test_python_strategy_tab_knobs_and_code_modules():
     w.wait(60)
     assert "Profit" in tab.summary.text()
     before = tab.report["selected"]["equity"]["v"][-1]
-    # the knob panel on the Measurements page shows this strategy's knobs; letting go re-runs it
-    panel = w.measurements.profit.knobs
-    assert panel.current() is tab and set(panel.sliders) == {"days", "top", "min_price"}
+    # the Knobs dock shows the knobs of the strategy in front; letting go re-runs it
+    panel = w.knobs
+    assert w.knobs_dock.isVisible() and panel.current() is tab and set(panel.sliders) == {"days", "top", "min_price"}
     panel.turn("days", 30)
     w.wait(60)
     assert tab.knob_values == {"days": 30}
@@ -434,7 +437,7 @@ def test_time_frame_and_complementary_data():
     cfg["data"]["params"].update(n_symbols=15, n_days=80)
     w.editor.setPlainText(json.dumps(cfg))
     try:
-        w.data_page.set_time_frame({"start": "2024-02-01", "end": "2024-03-15"})
+        w.home.set_time_frame({"start": "2024-02-01", "end": "2024-03-15"})
         w.run()
         w.wait(60)
         eq = w.tab.report["selected"]["equity"]["t"]
@@ -442,7 +445,7 @@ def test_time_frame_and_complementary_data():
         d = w.tab.report["default_equity"]["t"]
         assert d[0][:10] >= "2024-02-01" and d[-1][:10] <= "2024-03-15"
     finally:
-        w.data_page.set_time_frame(None)
+        w.home.set_time_frame(None)
     # attach complementary data to the dataset of every strategy using it
     w.data_page.table.selectRow(0)
     w.add_complementary(json.loads(w.editor.toPlainText())["data"], {"plugin": "synthetic_events"})
@@ -451,3 +454,64 @@ def test_time_frame_and_complementary_data():
     w.wait(60)
     assert "earnings_surprise" in w.data_page.table.item(0, 6).text()
     app.processEvents()
+
+
+def test_home_page_docks_and_dark_mode():
+    from honestbt.desktop import theme
+    from honestbt.desktop.app import MainWindow
+    app = _app()
+    w = MainWindow()
+    w.resize(1400, 900)
+    w.show()
+    app.processEvents()
+    # Home lists your strategy files and the pack examples; nothing is shared on other pages
+    names = [r["name"] for r in w.home.rows]
+    assert any("momentum" in n.lower() for n in names) and any("pack)" in n for n in names)
+    assert not w.library_dock.isVisible() and not w.knobs_dock.isVisible()  # docks only on strategy pages
+    w.pages.setCurrentWidget(w.strategies[0])
+    app.processEvents()
+    assert w.library_dock.isVisible() and not w.knobs_dock.isVisible()  # patch bay: no knobs
+    lib = dict(w.library_rows())
+    assert lib["Backtests"].startswith("8") and "synthetic" in lib["Data sources"]
+    # opening a strategy that is already open switches to its tab instead of opening it twice
+    key = w.home.rows[0]["key"]
+    n = len(w.strategies)
+    w.open_key(key)
+    w.open_key(key)
+    assert len(w.strategies) == n
+    # dark mode: palette and editor colours follow
+    try:
+        assert theme.apply(app, "dark") and app.palette().color(app.palette().ColorRole.Window).lightness() < 80
+        w.apply_theme("dark")
+        assert not theme.apply(app, "light")
+    finally:
+        theme.apply(app, "light")
+
+
+def test_reset_to_empty_backs_up_and_starters_bring_it_back(tmp_path, monkeypatch):
+    import zipfile
+    from honestbt import plugins, starters
+    from honestbt.desktop import app as appmod
+    monkeypatch.setattr(appmod, "USER_DIR", tmp_path)
+    monkeypatch.setenv("HONESTBT_PLUGIN_DIR", str(tmp_path / "plugins"))
+    _app()
+    starters.import_strategies(tmp_path)
+    starters.import_modules(tmp_path)
+    w = appmod.MainWindow()
+    try:
+        backup = w.reset_to_empty(confirm=False)
+        assert zipfile.ZipFile(backup).namelist() and "monday_gap_top5.json" in zipfile.ZipFile(backup).namelist()
+        assert not list(tmp_path.glob("*.json")) and not starters.modules_dir(tmp_path).exists()
+        on = {s.id for s in plugins.statuses() if s.state == "on"}
+        assert on == {"synthetic-stocks"}
+        assert len(w.strategies) == 1 and w.tab.kind == "python"
+        w.run()  # a new strategy still runs on the empty app
+        w.wait(60)
+        assert w.tab.report
+        w.import_starters(True, True)
+        assert {s.id for s in plugins.statuses() if s.source == "builtin" and s.state != "on"} == set()
+        assert (tmp_path / "monday_gap_top5.json").exists()
+    finally:
+        starters.switch_on_builtins()
+        monkeypatch.delenv("HONESTBT_PLUGIN_DIR")
+        plugins.reload()

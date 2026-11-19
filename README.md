@@ -94,7 +94,7 @@ At each decision time t_j, `F` holds all data up to t_j (and nothing later: aski
 raises an error) and `p` holds the current positions. `decide` returns the fraction of the
 account to hold in each name; the positions are a step function p_i(t) that changes only at
 decision times, filled at the next bar's open with costs. In the code editor, put the cursor on
-any number and press **Make knob** (Ctrl+K): it becomes a slider on the Measurements page.
+any number and press **Make knob** (Ctrl+K): it becomes a slider in the Knobs panel beside the strategy.
 See `honestbt/plugins/starter/strategies/momentum_rotation.py`.
 
 ## Architecture
@@ -151,7 +151,7 @@ honestbt/plugins/builtin/bootstrap/
   plugin code can do anything Python can, so only add plugins you trust.
 
 **Sharing plugins as `.tiplug` files.** A `.tiplug` is one plugin folder
-zipped into one file. In the desktop app, **Plugins… → Import plugin…** checks
+zipped into one file. In the desktop app, **Home → Import a pack…** checks
 it and adds it to your plugin folder. The window also lists every plugin with
 the reason any of them is off, and lets you switch plugins on or off. The
 same tools work from the command line:
@@ -228,15 +228,19 @@ truth; every edit rewrites it, and Ctrl+Z in the editor undoes one):
   empty space to add features, mappings, exits and tests; right-click a box
   to swap the strategy, exit or data, or remove it (or select it and press
   Delete). *Tidy layout* puts the boxes back in columns.
-* Drag a plugin from the **Plugin catalogue** onto the patch bay (or
+* Drag a module from the **Module library** dock onto the patch bay (or
   double-click it) to add it.
 * **Hover** over anything (a word in the settings, a patch-bay box, a button,
   a test) and the help line at the bottom of the window explains it.
-* **Presets** are your strategy files in Documents/Titanium plus the presets
-  of installed packs. The starter strategies are not built in: the app offers
-  to import them the first time it starts, and **Starters…** imports them any
-  time (from `honestbt/plugins/starter/`).
-* In **Verdicts**, every test is its own block: drag blocks to arrange them
+* **Home** lists your strategy files in Documents/Titanium and the examples
+  in installed packs; double-click one to open it in its own tab, where it has
+  its own **Run** button, profit chart (dots mark trades) and trades. Home also
+  holds the settings for every run (time frame, costs, the default strategy,
+  light or dark mode) and the library: **Manage packs…**, **Import a pack…**,
+  **Import starters…** and **Reset to empty…** (backs up to a zip first).
+  The starter strategies are not built in: the app offers to import them the
+  first time it starts (from `honestbt/plugins/starter/`).
+* On **Backtests**, every test result is its own block: drag blocks to arrange them
   and fold the ones you've read. The layout is remembered.
 
 The patch bay recombines existing pieces. Genuinely new trading logic (a new

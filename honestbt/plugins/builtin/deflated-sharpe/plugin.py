@@ -17,7 +17,7 @@ N = NormalDist()
 
 @register("evaluator", "deflated_sharpe", params=[
     Param("threshold", "float", 0.95, "Required probability that the true Sharpe is above zero"),
-], doc="Bailey & López de Prado's deflated Sharpe ratio: corrects for the number of variants tried.")
+], doc="Bailey & López de Prado's deflated Sharpe ratio: is the Sharpe ratio real after allowing for fat tails and for how many variants were tried (one, for a strategy run as written)?")
 def deflated_sharpe(ectx: EvalContext, threshold=0.95):
     r = ectx.sel_result.periods.to_numpy()
     T = len(r)

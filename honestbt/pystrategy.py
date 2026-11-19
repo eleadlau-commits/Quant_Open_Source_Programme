@@ -223,10 +223,12 @@ def _pretty(obj, indent=0) -> str:
     return repr(obj)
 
 
-def new_file(name: str, data: dict | None = None) -> str:
+def new_file(name: str, data: dict | None = None, evaluators: list | None = None) -> str:
+    """A runnable starting point. ``evaluators=None`` uses two standard tests; pass [] for none."""
     st = {"data": data or {"plugin": "synthetic", "params": {"n_symbols": 40, "n_days": 130, "seed": 7}},
           "decide_at": "15:50", "every": "week",
-          "evaluators": [{"plugin": "bootstrap"}, {"plugin": "cost_stress", "params": {"multiplier": 2}}]}
+          "evaluators": [{"plugin": "bootstrap"}, {"plugin": "cost_stress", "params": {"multiplier": 2}}]
+          if evaluators is None else evaluators}
     return TEMPLATE.format(name=name, settings=_pretty(st))
 
 

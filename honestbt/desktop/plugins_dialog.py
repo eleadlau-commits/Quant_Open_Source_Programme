@@ -1,4 +1,4 @@
-"""The Plugins window: see every plugin folder, switch them on or off, import a .tiplug."""
+"""The Packs window: see every pack (a folder of modules), switch them on or off, import a .tiplug."""
 from __future__ import annotations
 
 import os
@@ -23,10 +23,10 @@ class PluginsDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Plugins")
+        self.setWindowTitle("Packs")
         self.resize(1000, 560)
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["On", "Plugin", "Version", "From", "Adds", "Status"])
+        self.table.setHorizontalHeaderLabels(["On", "Pack", "Version", "From", "Adds", "Status"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.verticalHeader().setVisible(False)
@@ -36,11 +36,11 @@ class PluginsDialog(QDialog):
         self.details.setReadOnly(True)
         self.details.setMaximumHeight(150)
 
-        import_btn = QPushButton("Import plugin…")
+        import_btn = QPushButton("Import a pack…")
         import_btn.clicked.connect(self.import_file)
         self.remove_btn = QPushButton("Remove")
         self.remove_btn.clicked.connect(self.remove_selected)
-        folder_btn = QPushButton("Open plugin folder")
+        folder_btn = QPushButton("Open packs folder")
         folder_btn.clicked.connect(self.open_folder)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
@@ -50,9 +50,10 @@ class PluginsDialog(QDialog):
         buttons.addStretch()
         buttons.addWidget(close_btn)
 
-        note = QLabel("Each plugin is a folder. Built-in ones can be switched off; your own live in "
-                      f"<code>{plugins.user_dir()}</code>. Only import plugins from people you trust: "
-                      "plugin code runs on your computer.")
+        note = QLabel("Each pack is a folder of modules (data sources, Data → Data, Data → Buy/Sell, backtests). "
+                      "Built-in ones can be switched off; the ones you install live in "
+                      f"<code>{plugins.user_dir()}</code>. Only import packs from people you trust: "
+                      "their code runs on your computer.")
         note.setWordWrap(True)
         lay = QVBoxLayout(self)
         lay.addWidget(note)
@@ -129,17 +130,17 @@ class PluginsDialog(QDialog):
 
     # ---- buttons
     def import_file(self):
-        fn, _ = QFileDialog.getOpenFileName(self, "Import plugin", str(plugins.user_dir().parent),
-                                            f"Plugins (*{tiplug.SUFFIX});;Plugin folder manifest (plugin.json)")
+        fn, _ = QFileDialog.getOpenFileName(self, "Import a pack", str(plugins.user_dir().parent),
+                                            f"Packs (*{tiplug.SUFFIX});;Pack folder manifest (plugin.json)")
         if not fn:
             return
         path = os.path.dirname(fn) if fn.endswith("plugin.json") else fn
         rep = tiplug.install(path)
         if not rep.ok and any("already installed" in f for f in rep.failed):
-            if QMessageBox.question(self, "Replace plugin?", rep.failed[-1] + "\n\nReplace it?") == QMessageBox.Yes:
+            if QMessageBox.question(self, "Replace pack?", rep.failed[-1] + "\n\nReplace it?") == QMessageBox.Yes:
                 rep = tiplug.install(path, replace=True)
         (QMessageBox.information if rep.ok else QMessageBox.warning)(
-            self, "Plugin imported" if rep.ok else "Plugin not imported", rep.text())
+            self, "Pack imported" if rep.ok else "Pack not imported", rep.text())
         if rep.ok:
             self.reload()
 
@@ -147,7 +148,7 @@ class PluginsDialog(QDialog):
         s = self._current()
         if not s or s.source != "user":
             return
-        if QMessageBox.question(self, "Remove plugin?", f"Delete the folder {s.folder}?") != QMessageBox.Yes:
+        if QMessageBox.question(self, "Remove pack?", f"Delete the folder {s.folder}?") != QMessageBox.Yes:
             return
         try:
             tiplug.remove(s.id)

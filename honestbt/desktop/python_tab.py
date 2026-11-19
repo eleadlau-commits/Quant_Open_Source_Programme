@@ -4,7 +4,7 @@ The patch bay here is drawn from the code: the dataset feeds the Data → Data
 modules (functions in the file), which feed ``decide`` (the Data → Buy/Sell
 module), which feeds the trading engine. Each box lists the knobs inside it.
 Put the cursor on a number and press "Make knob" to turn it into a knob you
-can move on the Measurements page.
+can move in the Knobs panel.
 """
 from __future__ import annotations
 
@@ -30,8 +30,14 @@ MOD_COLORS_DARK = {"data": "#2d2f33", "Data → Data": "#26304a", "Data → Buy/
 
 
 class PythonHighlighter(QSyntaxHighlighter):
-    def __init__(self, doc):
+    def __init__(self, doc, dark: bool = False):
         super().__init__(doc)
+        self.set_dark(dark, rehighlight=False)
+
+    def set_dark(self, dark: bool, rehighlight: bool = True):
+        from .theme import code_colors
+        c = code_colors(dark)
+
         def fmt(color, bold=False, italic=False):
             f = QTextCharFormat()
             f.setForeground(QColor(color))
@@ -40,12 +46,14 @@ class PythonHighlighter(QSyntaxHighlighter):
             f.setFontItalic(italic)
             return f
         kw = r"\b(" + "|".join(keyword.kwlist) + r")\b"
-        self.rules = [(QRegularExpression(kw), fmt("#7b3fb0", bold=True)),
-                      (QRegularExpression(r"\bknob\b"), fmt("#b4635e", bold=True)),
-                      (QRegularExpression(r"\bdef\s+\w+"), fmt("#2f5bd3", bold=True)),
-                      (QRegularExpression(r"\b\d+(\.\d+)?\b"), fmt("#c0841a")),
-                      (QRegularExpression(r"(\"[^\"]*\"|'[^']*')"), fmt("#1f8a4c")),
-                      (QRegularExpression(r"#[^\n]*"), fmt("#8a8a84", italic=True))]
+        self.rules = [(QRegularExpression(kw), fmt(c["keyword"], bold=True)),
+                      (QRegularExpression(r"\bknob\b"), fmt(c["knob"], bold=True)),
+                      (QRegularExpression(r"\bdef\s+\w+"), fmt(c["def"], bold=True)),
+                      (QRegularExpression(r"\b\d+(\.\d+)?\b"), fmt(c["number"])),
+                      (QRegularExpression(r"(\"[^\"]*\"|'[^']*')"), fmt(c["string"])),
+                      (QRegularExpression(r"#[^\n]*"), fmt(c["comment"], italic=True))]
+        if rehighlight:
+            self.rehighlight()
 
     def highlightBlock(self, text):
         for rx, f in self.rules:
@@ -63,7 +71,7 @@ class CodeEditor(QPlainTextEdit):
         self.setFont(QFont("Menlo" if sys.platform == "darwin" else "Consolas", 10))
         self.setTabStopDistance(4 * self.fontMetrics().horizontalAdvance(" "))
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
-        self.highlighter = PythonHighlighter(self.document())
+        self.highlighter = PythonHighlighter(self.document(), self.palette().color(QPalette.Base).lightness() < 128)
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Tab and not e.modifiers():
@@ -231,7 +239,7 @@ class PythonTab(TabBase):
         self.knob_values: dict = {}
 
         self.bay = CodeBayView()
-        self.bay.clicked.connect(lambda line: (self.lower.setCurrentIndex(0), self.editor.goto_line(line)))
+        self.bay.clicked.connect(self.editor_goto)
         self.bay.hovered.connect(self.hovered)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -240,7 +248,7 @@ class PythonTab(TabBase):
         self.editor = CodeEditor()
         self.make_knob_btn = QPushButton("Make knob")
         self.make_knob_btn.setToolTip("Put the cursor on a number in the code and press this: the number becomes a "
-                                      "knob you can turn on the Measurements page (Ctrl+K).")
+                                      "knob you can turn in the Knobs panel (Ctrl+K).")
         self.make_knob_btn.setShortcut("Ctrl+K")
         self.make_knob_btn.clicked.connect(self.make_knob)
         self.knobs_lbl = QLabel()
@@ -254,25 +262,17 @@ class PythonTab(TabBase):
         cl.addLayout(bar)
         cl.addWidget(self.editor, 1)
         cl.addWidget(self.problems)
-        self.lower = QTabWidget()
-        self.lower.addTab(code_page, "Code (Python)")
-        self.lower.addTab(self.trades_table, "Trades")
-        self.lower.setTabToolTip(0, "The strategy's Python file. Its functions are the modules drawn above.")
-
         top = QWidget()
         tl = QVBoxLayout(top)
         tl.setContentsMargins(0, 0, 0, 0)
-        tl.addWidget(self.summary)
-        tl.addWidget(QLabel("<b>Patch bay</b> <span style='color:gray'>drawn from the code: data → Data → Data "
-                            "modules → decide (Data → Buy/Sell) → trading engine · click a box to see its code</span>"))
+        tl.addWidget(QLabel("<b>Patch bay</b> <span style='color:gray'>drawn from the code · click a box to see "
+                            "its code</span>"))
         tl.addWidget(scroll, 1)
         split = QSplitter(Qt.Vertical)
         split.addWidget(top)
-        split.addWidget(self.lower)
-        split.setSizes([330, 550])
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 4, 4, 4)
-        lay.addWidget(split)
+        split.addWidget(code_page)
+        split.setSizes([240, 600])
+        self._finish(split)
 
         self.editor.setPlainText(src)
         self.editor.textChanged.connect(self.on_edit)
@@ -321,7 +321,10 @@ class PythonTab(TabBase):
             self.status.emit(what)
 
     def reveal(self, key: str):
-        self.lower.setCurrentIndex(0)
+        pass
+
+    def editor_goto(self, line: int):
+        self.editor.goto_line(line)
 
     def knobs(self) -> list[dict]:
         return ps.knobs(self.source())
@@ -356,7 +359,7 @@ class PythonTab(TabBase):
         cur.insertText(new)
         cur.endEditBlock()
         self.editor.goto_line(line + new.count("\n") - old.count("\n"))
-        self.status.emit(f"'{name}' is now a knob. Turn it on the Measurements page.")
+        self.status.emit(f"'{name}' is now a knob. Turn it in the Knobs panel.")
 
     def set_knob(self, name: str, value):
         self.knob_values[name] = value

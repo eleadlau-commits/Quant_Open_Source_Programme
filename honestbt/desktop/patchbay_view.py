@@ -318,7 +318,7 @@ class PatchBayView(QWidget):
         if not any(b.kind == "f" for b in self.boxes.values()):
             p.setPen(muted)
             p.drawText(QRectF(12, 60, BW + 40, 80), Qt.TextWordWrap,
-                       "No features yet. Right-click, or drag one in from the Plugin catalogue.")
+                       "No features yet. Right-click, or drag one in from the module library.")
         for b in self.boxes.values():
             sel = b.key == self.selected
             p.setPen(QPen(accent if sel else (ink if self._hover == b.key else line), 2 if sel else 1))
