@@ -543,8 +543,6 @@ class PatchBayView(QWidget):
                 menu.addAction(f"Unplug '{r.source[1]}'").triggered.connect(
                     lambda: self._emit(builder.unplug(self.cfg, r.path), f"Unplugged {r.label}."))
             menu.addAction(f"Edit {r.label}…").triggered.connect(lambda: self.edit_value(r.path))
-            menu.addAction(f"Sweep {r.label} (try several values)").triggered.connect(
-                lambda: self._emit(*builder.add_sweep(self.cfg, r.path)))
             menu.addSeparator()
         feat_slots, num_slots = builder.strategy_slots(self.cfg)
         if node and node[0] in ("f", "m"):
