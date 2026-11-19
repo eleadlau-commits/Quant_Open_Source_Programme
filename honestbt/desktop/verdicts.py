@@ -125,7 +125,7 @@ class VerdictBoard(QScrollArea):
 
     hovered = Signal(str)
 
-    def __init__(self, settings: QSettings | None = None):
+    def __init__(self, settings: QSettings | None = None, toolbar: bool = True):
         super().__init__()
         self.settings = settings or QSettings("Titanium", "Titanium")
         self.cards: list[VerdictCard] = []
@@ -146,6 +146,8 @@ class VerdictBoard(QScrollArea):
         reset.clicked.connect(self.reset)
         bar.addWidget(self.fold_all)
         bar.addWidget(reset)
+        for w in (self.hint, self.fold_all, reset):
+            w.setVisible(toolbar)
         outer.addLayout(bar)
         self.grid = QGridLayout()
         self.grid.setSpacing(8)

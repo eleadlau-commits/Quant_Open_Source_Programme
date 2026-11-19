@@ -18,8 +18,8 @@ SECTIONS = {
     "instrument": "Futures contract details: tick size, dollars per point and the account size used for returns.",
     "sweep": "The strategy family: every combination of the listed values is backtested. The tests then judge the "
              "best-looking variant and check whether picking it was just luck.",
-    "evaluators": "The tests the best variant has to survive. Each gives PASS, FAIL or N/A in the Verdicts tab.",
-    "plugin": "Which plugin does this job. See the Plugin catalogue tab for every choice.",
+    "evaluators": "The tests this strategy uses, ticked on the Backtests page. Each gives PASS, FAIL or N/A.",
+    "plugin": "Which plugin does this job. See the module library for every choice.",
     "input": "The feature (or mapping) plugged into this mapping.",
     "$map": "Use a mapping's output here: the value is worked out per symbol at decision time.",
     "$feature": "Use a feature's value here, worked out per symbol at decision time.",
@@ -35,18 +35,25 @@ UI = {
     "open": "Open a strategy file (.json) from disk.",
     "save": "Save the current settings as your own strategy file. It then appears in Presets as '(mine)'.",
     "plugins": "See every plugin, switch them on or off, and import .tiplug packs.",
-    "run": "Backtest every variant in the sweep, then put the best one through the tests (Ctrl+Enter).",
+    "run": "Backtest the strategy in front exactly as written (Ctrl+Enter). Tests are run from the Backtests page.",
+    "Data": "The datasets your strategies use, and the global data every strategy can draw on.",
+    "Strategies": "One tab per strategy, each with its own patch bay and settings, plus the default strategy. "
+                  "The module library is on the right.",
+    "Measurements": "Compare strategies over time. One tab per measure of success; for now, profit.",
+    "Backtests": "One list of tests for every strategy. Nothing runs until you ask: double-click one, select a few "
+                 "and press Run selected, or press Run all.",
+    "Default": "The default strategy: hold everything in the dataset. The yardstick every strategy is compared with.",
     "patchbay": "The patch bay: build the strategy by wiring boxes. Drag a box to move it, drag from a ● output onto a "
                 "setting to plug it in, drag a cable off to unplug it, double-click a setting to type a value, "
-                "right-click for everything else. Drag plugins in from the Plugin catalogue.",
+                "right-click for everything else. Drag modules in from the module library.",
     "editor": "The full settings as JSON. Hover any word to see what it means. Changes redraw the patch bay at once.",
-    "catalogue": "Every plugin you can use. Double-click one, or drag it onto the patch bay, to put it into your strategy.",
+    "catalogue": "Every module you can use, grouped as Data → Data and Data → Buy/Sell. Double-click one, or drag it onto the patch bay, to put it into your strategy.",
     "summary": "How many tests the best-looking variant survived.",
     "Verdicts": "One block per test. Drag the blocks to arrange them; the order is remembered.",
     "Equity": "Growth of 1 for the selected variant, against the benchmark or ablation when there is one.",
     "Sweep": "Every variant in the family with its results. Click a column to sort.",
     "Trades": "Every trade of the selected variant.",
-    "Settings (JSON)": "The full settings as JSON. Hover any word to see what it means.",
+    "Settings (JSON)": "The full settings as JSON. Hover any word to see what it means. Changes redraw the patch bay.",
     "Plugin catalogue": "Every plugin you can use. Double-click one to add it to your strategy.",
 }
 

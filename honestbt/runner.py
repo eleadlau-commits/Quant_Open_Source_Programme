@@ -22,46 +22,75 @@ def load_data(spec: dict):
     return _DATA_CACHE[key]
 
 
-def run_config(cfg: dict, data=None, strict: bool = True) -> dict:
-    load_plugins()
-    problems = validate(cfg)
-    if problems:
-        raise ConfigError("; ".join(problems))
-    t0 = time.time()
-    data = data or load_data(cfg["data"])
-    cache: dict[str, engine.RunResult] = {}
+class StrategyRun:
+    """One strategy backtested; tests can then be run on it one at a time, on demand.
 
-    def run_one(c: dict) -> engine.RunResult:
+    ``sweep=False`` runs the settings exactly as written (the desktop app's way);
+    ``sweep=True`` backtests every variant in ``sweep`` and selects the best Sharpe.
+    """
+
+    def __init__(self, cfg: dict, data=None, strict: bool = True, sweep: bool = True):
+        load_plugins()
+        if not sweep:
+            cfg = {k: v for k, v in cfg.items() if k != "sweep"}
+        problems = validate(cfg)
+        if problems:
+            raise ConfigError("; ".join(problems))
+        t0 = time.time()
+        self.cfg = cfg
+        self.strict = strict
+        self.data = data or load_data(cfg["data"])
+        self._cache: dict[str, engine.RunResult] = {}
+        self.points = [(pt, c, self.run_one(c)) for pt, c in expand_sweep(cfg)]
+        pts = self.points
+        self.selected = max(range(len(pts)), key=lambda i: pts[i][2].metrics().get("sharpe", float("-inf")))
+        self.elapsed_s = round(time.time() - t0, 2)
+
+    def run_one(self, c: dict) -> engine.RunResult:
         key = json.dumps({k: v for k, v in c.items() if k not in ("sweep", "evaluators", "data")}, sort_keys=True)
-        if key not in cache:
-            cache[key] = engine.run(data, c, strict=strict)
-        return cache[key]
+        if key not in self._cache:
+            self._cache[key] = engine.run(self.data, c, strict=self.strict)
+        return self._cache[key]
 
-    points = [(pt, c, run_one(c)) for pt, c in expand_sweep(cfg)]
-    selected = max(range(len(points)), key=lambda i: points[i][2].metrics().get("sharpe", float("-inf")))
+    @property
+    def result(self) -> engine.RunResult:
+        return self.points[self.selected][2]
+
+    def context(self) -> EvalContext:
+        return EvalContext(self.data, self.cfg, self.points, self.selected, self.run_one)
+
+    def run_test(self, ev: dict) -> Verdict:
+        """Run one test (evaluator spec ``{"plugin", "params"}``); a crash is reported, never a pass."""
+        try:
+            return get("evaluator", ev["plugin"])(self.context(), **ev.get("params", {}))
+        except Exception as exc:
+            return Verdict(ev.get("plugin", "?"), None, "Evaluator failed", repr(exc))
+
+    def report(self) -> dict:
+        """The strategy's own results, without tests."""
+        return {
+            "data": repr(self.data),
+            "selected_point": self.points[self.selected][0],
+            "selected": self.result.to_json(),
+            "elapsed_s": self.elapsed_s,
+        }
+
+
+def run_config(cfg: dict, data=None, strict: bool = True) -> dict:
+    t0 = time.time()
+    sr = StrategyRun(cfg, data=data, strict=strict)
     # The rules as written in the config before any sweep: what you fixed in advance.
     pre_cfg = {k: v for k, v in cfg.items() if k != "sweep"}
-    pre = run_one(pre_cfg).metrics()
-    sharpes = sorted((res.metrics().get("sharpe", 0.0) for _, _, res in points), reverse=True)
+    pre = sr.run_one(pre_cfg).metrics()
+    sharpes = sorted((res.metrics().get("sharpe", 0.0) for _, _, res in sr.points), reverse=True)
     pre_rank = 1 + sum(s > pre.get("sharpe", 0.0) + 1e-12 for s in sharpes)
-    ectx = EvalContext(data, cfg, points, selected, run_one)
-
-    verdicts: list[Verdict] = []
-    for ev in expand_evaluators(cfg):
-        fn = get("evaluator", ev["plugin"])
-        try:
-            verdicts.append(fn(ectx, **ev.get("params", {})))
-        except Exception as exc:  # an evaluator crashing must not look like a pass
-            verdicts.append(Verdict(ev["plugin"], None, "Evaluator failed", repr(exc)))
-
+    verdicts = [sr.run_test(ev) for ev in expand_evaluators(cfg)]
     decided = [v for v in verdicts if v.passed is not None]
     n_pass = sum(v.passed for v in decided)
     return {
-        "data": repr(data),
-        "selected_point": points[selected][0],
-        "selected": points[selected][2].to_json(),
-        "sweep": [{"point": pt, "metrics": res.metrics()} for pt, _, res in points],
-        "preregistered": {"metrics": pre, "rank": pre_rank, "of": len(points)},
+        **sr.report(),
+        "sweep": [{"point": pt, "metrics": res.metrics()} for pt, _, res in sr.points],
+        "preregistered": {"metrics": pre, "rank": pre_rank, "of": len(sr.points)},
         "verdicts": [v.__dict__ for v in verdicts],
         "summary": {
             "survived": n_pass, "evaluated": len(decided),

@@ -9,48 +9,117 @@ QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 QtCore = pytest.importorskip("PySide6.QtCore")
 
 
-def test_window_runs_small_config():
-    from honestbt.desktop.app import MainWindow
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    w = MainWindow()
+def _app():
+    return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+
+def test_window_has_four_pages_and_runs_strategy_without_tests():
     import json
+    from honestbt.desktop.app import MainWindow
+    _app()
+    w = MainWindow()
+    assert [w.pages.tabText(i) for i in range(w.pages.count())] == ["Data", "Strategies", "Measurements", "Backtests"]
+    assert w.strategy_tabs.tabText(0) == "Default" and w.tab.key == "S1"
+    cfg = json.loads(w.editor.toPlainText())
+    assert "sweep" not in cfg  # the app runs strategies exactly as written
+    cfg["data"]["params"].update(n_symbols=15, n_days=50)
+    w.editor.setPlainText(json.dumps(cfg))
+    w.run()
+    w.wait(60)
+    assert "Profit" in w.summary.text()
+    assert w.tab.report and not w.tab.results  # no test ran by itself
+    labels = [s["label"] for s in w.measurements.profit.chart.series]
+    assert labels[0].startswith("S1") and labels[1].startswith("Default")
+    assert w.measurements.profit.table.rowCount() == 2
+    assert "15" == w.data_page.table.item(0, 2).text()  # dataset measured once loaded
+
+
+def test_backtests_run_only_when_asked_one_selected_or_all():
+    import json
+    from honestbt.desktop.app import MainWindow
+    app = _app()
+    w = MainWindow()
     cfg = json.loads(w.editor.toPlainText())
     cfg["data"]["params"].update(n_symbols=15, n_days=50)
-    cfg["sweep"] = {"strategy.params.exit.params.k": [0.5, 1.0, 2.0]}
-    cfg["evaluators"] = [{"plugin": "bootstrap"}, {"plugin": "parameter_stability"}]
+    cfg["evaluators"] = [{"plugin": "bootstrap"}, {"plugin": "benchmark"}]
     w.editor.setPlainText(json.dumps(cfg))
-    w.run()
-    t0 = time.time()
-    while w._thread is not None and time.time() - t0 < 60:
-        app.processEvents()
-        time.sleep(0.02)
+    bt = w.backtests
+    rows = {r.data(0, QtCore.Qt.UserRole): r for r in bt.rows()}
+    assert rows["bootstrap"].checkState(1) == QtCore.Qt.Checked
+    assert rows["cost_stress"].checkState(1) == QtCore.Qt.Unchecked
+    # one test (double-click): runs the strategy first, then just that test
+    bt.request(["cost_stress"])
+    w.wait(60)
+    assert w.tab.report and set(w.tab.results) == {"cost_stress"}
+    # a few selected
+    bt.list.clearSelection()
+    rows["bootstrap"].setSelected(True)
+    rows["benchmark"].setSelected(True)
+    bt.run_selected()
+    w.wait(60)
+    assert set(w.tab.results) == {"cost_stress", "bootstrap", "benchmark"}
+    # ticking a test adds it to the strategy; Run all runs every ticked test
+    rows["deflated_sharpe"].setCheckState(1, QtCore.Qt.Checked)
     app.processEvents()
-    assert "tests" in w.summary.text()
-    assert w.sweep_table.rowCount() == 3
+    used = [e["plugin"] for e in json.loads(w.editor.toPlainText())["evaluators"]]
+    assert used == ["bootstrap", "benchmark", "deflated_sharpe"]
+    w.tab.results.clear()
+    bt.run_used()
+    w.wait(60)
+    assert set(w.tab.results) == {"bootstrap", "benchmark", "deflated_sharpe"}
+    shown = sum(len(bt.results.cards[g]) for g in ("pass", "fail", "na"))
+    assert shown == 3
 
 
-def test_window_runs_orb_config():
-    from honestbt.desktop.app import MainWindow
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    w = MainWindow()
+def test_strategy_tabs_compare_on_the_profit_page():
     import json
+    from honestbt.desktop.app import MainWindow
+    _app()
+    w = MainWindow()
     i = w.preset.findText("nq_orb_trend_filter")
     assert i >= 0
-    w.preset.setCurrentIndex(i)
-    cfg = json.loads(w.editor.toPlainText())
+    cfg = json.loads(open(w.preset.itemData(i)).read())
     cfg["data"]["params"]["n_days"] = 80
-    cfg["sweep"] = {"strategy.params.target_r": [2.0, 3.0, 4.0]}
-    cfg["evaluators"] = [{"plugin": "ablation"}, {"plugin": "parameter_stability"}]
-    w.editor.setPlainText(json.dumps(cfg))
+    s2 = w.add_strategy(cfg)
+    assert s2.key == "S2" and w.tab is s2
     w.run()
-    t0 = time.time()
-    while w._thread is not None and time.time() - t0 < 60:
-        app.processEvents()
-        time.sleep(0.02)
-    app.processEvents()
-    assert "ranked" in w.summary.text()
+    w.wait(60)
     assert w.trades_table.horizontalHeaderItem(7).text() == "R"
-    assert len(w.chart.series) == 2
+    w.strategy_tabs.setCurrentIndex(1)
+    c1 = json.loads(w.editor.toPlainText())
+    c1["data"]["params"].update(n_symbols=15, n_days=50)
+    w.editor.setPlainText(json.dumps(c1))
+    w.run()
+    w.wait(60)
+    prof = w.measurements.profit
+    labels = [s["label"] for s in prof.chart.series]
+    assert sum(l.startswith("Default") for l in labels) == 2  # one per dataset
+    assert any(l.startswith("S1") for l in labels) and any(l.startswith("S2") for l in labels)
+    prof.picker.item(1).setCheckState(QtCore.Qt.Unchecked)  # hide S2 (and its dataset's default)
+    assert [s["label"][:2] for s in prof.chart.series] == ["S1", "De"]
+    full = prof.chart.window()
+    prof.chart.zoom(0.5)
+    a, b = prof.chart.window()
+    assert b - a < full[1] - full[0]
+    w.close_strategy(w.strategy_tabs.indexOf(s2))
+    assert [t.key for t in w.strategies] == ["S1"]
+
+
+def test_window_stats_measures_from_window_start():
+    import numpy as np
+    from honestbt.desktop.measurements import window_stats
+    t = np.array([0.0, 1, 2, 3, 4])
+    v = np.array([1.0, 2.0, 1.0, 1.5, 3.0])
+    assert window_stats(t, v, 0, 4) == (2.0, -0.5)
+    assert window_stats(t, v, 2, 4) == (2.0, 0.0)
+
+
+def test_default_strategy_holds_everything():
+    from honestbt import baseline
+    from honestbt.runner import load_data
+    data = load_data({"plugin": "synthetic", "params": {"n_symbols": 10, "n_days": 30, "seed": 3}})
+    eq = baseline.hold_everything(data)
+    assert len(eq) == len(data.trading_days) and eq.iloc[0] == 1.0 and (eq > 0).all()
 
 
 def test_plugins_window_switches_a_plugin_off_and_on():
@@ -168,7 +237,7 @@ def test_patch_bay_and_catalogue_edit_the_settings():
     menu = w.graph.build_menu(None)
     assert [a.text() for a in menu.actions() if a.menu()][:2] == ["Add feature", "Add mapping (cable)"]
     feat = next(it for it in [w.catalogue.topLevelItem(i) for i in range(w.catalogue.topLevelItemCount())]
-                if it.text(0) == "feature")
+                if it.text(0) == "Data → Data")
     child = next(feat.child(i) for i in range(feat.childCount()) if feat.child(i).text(0) == "trailing_return")
     w.catalogue_add(child)
     cfg = json.loads(w.editor.toPlainText())
