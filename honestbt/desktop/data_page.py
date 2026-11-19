@@ -59,6 +59,14 @@ class DataPage(QWidget):
         tf.addWidget(self.start)
         tf.addWidget(QLabel("to"))
         tf.addWidget(self.end)
+        tf.addSpacing(24)
+        self.no_costs = QCheckBox("Last-traded price only (no spread or slippage cost)")
+        self.no_costs.setToolTip("On: fills at the last traded price with no trading cost. Off (default): every fill "
+                                 "pays an assumed half-spread plus slippage, about 8 basis points (5 + 3), more "
+                                 "right after the open. The Cost stress test always uses real costs.")
+        self.no_costs.setChecked(self.settings.value("data/no_costs", False, type=bool))
+        self.no_costs.toggled.connect(self._costs_changed)
+        tf.addWidget(self.no_costs)
         tf.addStretch()
         self._sync_tf()
         self.stats: dict[str, dict] = {}   # data key -> dataset_stats
@@ -127,6 +135,10 @@ class DataPage(QWidget):
         self._sync_tf()
         self.settings.setValue("data/time_frame", self.time_frame() or "")
         self.time_frame_changed.emit()
+
+    def _costs_changed(self, on: bool):
+        self.settings.setValue("data/no_costs", bool(on))
+        self.time_frame_changed.emit()  # same effect: results need a re-run
 
     def _add_comp(self):
         row = self.table.currentRow()

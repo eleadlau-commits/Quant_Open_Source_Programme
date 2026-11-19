@@ -300,6 +300,9 @@ def load_all(dirs: list[tuple[Path, str]] | None = None, off: set[str] | None = 
     _PRESETS.clear()
     if dirs is None:
         dirs = [(BUILTIN_DIR, "builtin"), (user_dir(), "user")]
+        # extra plugin roots, e.g. the starter packs when running the test suite from source
+        extra = os.environ.get("HONESTBT_EXTRA_PLUGIN_DIRS", "")
+        dirs += [(Path(p), "starter") for p in extra.split(os.pathsep) if p]
     off = switched_off() if off is None else off
 
     pending: dict[str, tuple[PluginStatus, Path, dict]] = {}
@@ -413,9 +416,16 @@ def plugin_module(plugin_id: str):
 
 
 def reload() -> list[PluginStatus]:
-    """Forget every plugin and load the folders again (after an import or an on/off switch)."""
+    """Forget every plugin and load the folders again (after an import or an on/off switch).
+
+    Things registered outside any plugin folder (no owner, e.g. by a test) are kept."""
+    keep = {k: {n: o for n, o in items.items() if not o.plugin_info.plugin}
+            for k, items in registry._REGISTRY.items()}
     registry.reset()
     registry.load_plugins()
+    for k, items in keep.items():
+        for n, o in items.items():
+            registry._REGISTRY[k].setdefault(n, o)
     return statuses()
 
 

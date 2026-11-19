@@ -23,7 +23,7 @@ ROOT = _P(__file__).resolve().parent.parent
 
 @pytest.fixture(scope="module")
 def orb_config():
-    return json.loads((ROOT / "configs" / "nq_orb_trend_filter.json").read_text())
+    return json.loads((ROOT / "honestbt" / "plugins" / "starter" / "strategies" / "nq_orb_trend_filter.json").read_text())
 
 
 @pytest.fixture(scope="module")

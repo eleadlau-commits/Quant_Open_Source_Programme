@@ -9,7 +9,9 @@ from honestbt import plugins, registry
 from honestbt.patchbay import validate
 
 BUILTIN = plugins.BUILTIN_DIR
-IDS = sorted(p.name for p in BUILTIN.iterdir() if (p / "plugin.json").exists())
+STARTER = BUILTIN.parent / "starter"
+FOLDERS = {p.name: p for d in (BUILTIN, STARTER) for p in d.iterdir() if (p / "plugin.json").exists()}
+IDS = sorted(FOLDERS)
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -32,7 +34,7 @@ def write_plugin(base: Path, pid: str, code: str | None = None, **manifest) -> P
 
 
 def dependents(pid: str) -> set[str]:
-    req = {i: set(json.loads((BUILTIN / i / "plugin.json").read_text())["requires"]) for i in IDS}
+    req = {i: set(json.loads((FOLDERS[i] / "plugin.json").read_text())["requires"]) for i in IDS}
     out, grew = {pid}, True
     while grew:
         new = {i for i, r in req.items() if r & out} - out
@@ -45,7 +47,7 @@ def test_every_builtin_is_on_documented_and_tested():
     status = {s.id: s for s in plugins.statuses()}
     for pid in IDS:
         assert status[pid].state == "on", (pid, status[pid].reason)
-        folder = BUILTIN / pid
+        folder = FOLDERS[pid]
         assert plugins.check_imports(folder) == []
         readme = (folder / "README.md").read_text()
         assert "## What it adds" in readme and "## What it needs" in readme and "## Check it" in readme, pid
@@ -63,7 +65,7 @@ def test_every_registered_plugin_belongs_to_a_folder():
 def test_removing_any_folder_leaves_the_rest_working(isolated, tmp_path, removed):
     for pid in IDS:
         if pid != removed:
-            (tmp_path / pid).symlink_to(BUILTIN / pid, target_is_directory=True)
+            (tmp_path / pid).symlink_to(FOLDERS[pid], target_is_directory=True)
     status = isolated((tmp_path, "builtin"))
     off = dependents(removed) - {removed}
     for pid in IDS:
@@ -74,7 +76,7 @@ def test_removing_any_folder_leaves_the_rest_working(isolated, tmp_path, removed
         else:
             assert status[pid].state == "on", (pid, status[pid].reason)
     # A preset that needed it explains what is missing instead of crashing.
-    cfg = json.loads((ROOT / "configs" / "monday_gap_top5.json").read_text())
+    cfg = json.loads((ROOT / "honestbt" / "plugins" / "starter" / "strategies" / "monday_gap_top5.json").read_text())
     for problem in validate(cfg):
         assert "unknown" in problem
 
@@ -82,9 +84,9 @@ def test_removing_any_folder_leaves_the_rest_working(isolated, tmp_path, removed
 def test_config_says_which_plugin_is_off_and_why(isolated, tmp_path):
     for pid in IDS:
         if pid != "exit-signals":
-            (tmp_path / pid).symlink_to(BUILTIN / pid, target_is_directory=True)
+            (tmp_path / pid).symlink_to(FOLDERS[pid], target_is_directory=True)
     isolated((tmp_path, "builtin"))
-    cfg = json.loads((ROOT / "configs" / "monday_gap_top5.json").read_text())
+    cfg = json.loads((ROOT / "honestbt" / "plugins" / "starter" / "strategies" / "monday_gap_top5.json").read_text())
     problems = " ".join(validate(cfg))
     assert "'weekly-topn', which is off: needs plugin 'exit-signals', which is not installed" in problems
 

@@ -29,11 +29,12 @@ args = [
     "--windowed",
     "--noconfirm",
     "--clean",
-    "--add-data", f"{ROOT / 'configs'}{sep}configs",
     "--paths", str(ROOT),
     "--collect-submodules", "honestbt",
     # Plugin folders are read from disk at start-up, so ship them as files.
     "--add-data", f"{ROOT / 'honestbt' / 'plugins' / 'builtin'}{sep}honestbt/plugins/builtin",
+    # Starter strategies and code modules: shipped as files, imported into Documents/Titanium on request.
+    "--add-data", f"{ROOT / 'honestbt' / 'plugins' / 'starter'}{sep}honestbt/plugins/starter",
     # window icon
     "--add-data", f"{ROOT / 'honestbt' / 'desktop' / 'assets'}{sep}honestbt/desktop/assets",
     # not needed by the desktop app; keeps the file smaller

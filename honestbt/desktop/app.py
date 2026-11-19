@@ -23,16 +23,17 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QMimeData, QObject, Qt, QThread, Signal
+from PySide6.QtCore import QEvent, QMimeData, QObject, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QMainWindow,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QMainWindow,
     QMenu, QMessageBox, QPushButton, QSplitter, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget,
 )
 
 from .. import baseline
 from .. import pystrategy as ps
+from .. import starters
 from ..patchbay import validate
 from ..paths import app_dir
 from ..plugins import presets as plugin_presets
@@ -47,23 +48,10 @@ from .measurements import MeasurementsPage
 from .patchbay_view import MIME as PLUGIN_MIME
 from .plugins_dialog import PluginsDialog
 from .python_tab import PythonTab
-from .snippets import CODE_MODULES
+from .snippets import load_code_modules
 from .strategy_tab import DefaultTab, StrategyTab, TabBase
 
 
-def _find_root() -> Path:
-    """Folder holding configs/: the PyInstaller bundle, the source checkout, or the
-    installer's app folder (parent of its .venv)."""
-    candidates = [Path(getattr(sys, "_MEIPASS", "")), Path(__file__).resolve().parents[2],
-                  Path(sys.prefix).parent]
-    for c in candidates:
-        if str(c) and (c / "configs").is_dir():
-            return c
-    return Path(__file__).resolve().parents[2]
-
-
-ROOT = _find_root()
-CONFIGS = ROOT / "configs"
 USER_DIR = app_dir()  # ~/Documents/Titanium: where your own strategy files are saved
 ICON_DIR = Path(__file__).resolve().parent / "assets"
 APP_ID = "QuantOpenSource.Titanium"  # Windows taskbar grouping; matches the installer shortcuts
@@ -165,8 +153,42 @@ LIBRARY_GROUPS = (
 CODE_GROUP = ("Code modules", "Functions to drop into a strategy written in Python (double-click to add).")
 
 
+class StarterDialog(QDialog):
+    """Offered on first start (and from the Starters… button): import the example strategies and modules."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Titanium: starters")
+        text = QLabel("<b>Titanium starts empty.</b><br>Import some starters to explore? They are copied into "
+                      "your Documents/Titanium folder, so you can change or delete them. Nothing you already "
+                      "have is overwritten.")
+        text.setWordWrap(True)
+        names = ", ".join(f.stem for f in starters.strategy_files())
+        self.strategies = QCheckBox(f"Starter strategies ({names})")
+        self.strategies.setToolTip("The example strategy files, and the strategy plugins they use (weekly top-N, "
+                                   "Nasdaq opening range breakout, gap families).")
+        self.modules = QCheckBox(f"Starter code modules ({len(starters.module_files())} small functions for "
+                                 "Python strategies)")
+        self.modules.setToolTip("Data → Data and Data → Buy/Sell functions you can drop into a Python strategy "
+                                "from the module library.")
+        for c in (self.strategies, self.modules):
+            c.setChecked(True)
+        buttons = QDialogButtonBox()
+        buttons.addButton("Import", QDialogButtonBox.AcceptRole)
+        buttons.addButton("Not now", QDialogButtonBox.RejectRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay = QVBoxLayout(self)
+        lay.addWidget(text)
+        lay.addWidget(self.strategies)
+        lay.addWidget(self.modules)
+        lay.addWidget(QLabel("<span style='color:gray'>You can import them later with the Starters… button."
+                             "</span>"))
+        lay.addWidget(buttons)
+
+
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, ask_starters: bool = False):
         super().__init__()
         load_plugins()
         self.setWindowTitle("Titanium")
@@ -189,11 +211,14 @@ class MainWindow(QMainWindow):
         save_btn.clicked.connect(self.save_file)
         plugins_btn = QPushButton("Plugins…")
         plugins_btn.clicked.connect(self.show_plugins)
+        starters_btn = QPushButton("Starters…")
+        starters_btn.clicked.connect(self.offer_starters)
         top = QHBoxLayout()
         top.addWidget(QLabel("<b style='font-size:16px'>Titanium</b>  <span style='color:gray'>honest backtests</span>"))
         top.addStretch()
         for w, key in ((QLabel("Preset:"), "preset"), (self.preset, "preset"), (new_btn, "new"), (open_btn, "open"),
-                       (save_btn, "save"), (plugins_btn, "plugins"), (self.run_btn, "run")):
+                       (save_btn, "save"), (starters_btn, "starters"), (plugins_btn, "plugins"),
+                       (self.run_btn, "run")):
             tip(w, UI[key])
             top.addWidget(w)
 
@@ -280,6 +305,31 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready. Ctrl+Enter runs the current strategy.")
         if self.preset.count():
             self.add_strategy(read_strategy(Path(self.preset.itemData(0))), Path(self.preset.itemData(0)))
+        else:  # nothing imported yet: start with a blank Python strategy
+            self.add_strategy(ps.new_file("My Python strategy"))
+        if ask_starters and not starters.have_strategies(USER_DIR) and \
+                not QSettings("Titanium", "Titanium").value("starters/asked", False, type=bool):
+            QTimer.singleShot(0, self.offer_starters)
+
+    def offer_starters(self):
+        QSettings("Titanium", "Titanium").setValue("starters/asked", True)
+        dlg = StarterDialog(self)
+        if dlg.exec():
+            self.import_starters(dlg.strategies.isChecked(), dlg.modules.isChecked())
+
+    def import_starters(self, strategies: bool = True, modules: bool = True) -> list[str]:
+        """Copy the starter strategies and/or code modules into Documents/Titanium, then open one."""
+        added = (starters.import_strategies(USER_DIR) if strategies else []) + \
+                (starters.import_modules(USER_DIR) if modules else [])
+        self.plugins_changed()
+        if strategies:
+            first = USER_DIR / starters.strategy_files()[0].name
+            i = self.preset.findData(str(first))
+            if i >= 0:
+                self.load_preset(i)
+        self.statusBar().showMessage(f"Imported {len(added)} starter file(s) into {USER_DIR}." if added else
+                                     "The starters were already imported.", 10000)
+        return added
 
     # ---- strategies
     @property
@@ -387,7 +437,7 @@ class MainWindow(QMainWindow):
                                          "press Make knob to turn it on the Measurements page.", 10000)
             return
         name = names[labels.index(choice) - 1]
-        examples = sorted(CONFIGS.glob("*.json")) + [Path(p["path"]) for p in plugin_presets()]
+        examples = (sorted(USER_DIR.glob("*.json")) if USER_DIR.exists() else []) + [Path(p["path"]) for p in plugin_presets()]
         self.add_strategy(builder.new_config(name, examples))
         self.pages.setCurrentIndex(1)
         self.statusBar().showMessage(f"New {name} strategy. Add modules in the patch bay, then Save as… to keep it.", 8000)
@@ -401,7 +451,7 @@ class MainWindow(QMainWindow):
     def catalogue_hover(self, item, _col):
         entry = self._catalogue_entry(item)
         if entry and entry[0] == "code":
-            kind_, doc, _ = CODE_MODULES[entry[1]]
+            kind_, doc, _ = self.code_modules[entry[1]]
             self.show_help(f"Code module '{entry[1]}' ({kind_}): {doc} Double-click to add it to a Python strategy.")
         elif entry:
             kind, name = entry
@@ -420,7 +470,7 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage("Code modules go into strategies written in Python "
                                              "(New… → Python strategy).", 8000)
                 return
-            tab.insert_module(CODE_MODULES[name][2], name)
+            tab.insert_module(self.code_modules[name][2], name)
             return
         if tab.kind == "python":
             self.statusBar().showMessage(f"'{name}' is a patch-bay plugin; in a Python strategy use the Code modules "
@@ -469,7 +519,11 @@ class MainWindow(QMainWindow):
         f = parent.font(0)
         f.setBold(True)
         parent.setFont(0, f)
-        for name, (kind_, doc, _code) in CODE_MODULES.items():
+        self.code_modules = load_code_modules(starters.modules_dir(USER_DIR))
+        if not self.code_modules:
+            parent.setText(1, "None yet: import the starter code modules (Starters…), or put your own .py "
+                              "files in Documents/Titanium/modules.")
+        for name, (kind_, doc, _code) in self.code_modules.items():
             child = QTreeWidgetItem([name, doc, kind_])
             child.setData(0, Qt.UserRole, "code")
             child.setToolTip(1, doc)
@@ -483,13 +537,11 @@ class MainWindow(QMainWindow):
     def fill_presets(self):
         self.preset.blockSignals(True)
         self.preset.clear()
-        for p in sorted(CONFIGS.glob("*.json")) + sorted(CONFIGS.glob("*.py")):
+        mine = (sorted(USER_DIR.glob("*.json")) + sorted(USER_DIR.glob("*.py"))) if USER_DIR.exists() else []
+        for p in mine:  # your strategy files (including imported starters)
             self.preset.addItem(p.stem + (" (Python)" if p.suffix == ".py" else ""), str(p))
         for p in plugin_presets():  # strategy families shipped in plugin folders
             self.preset.addItem(f"{p['name']} ({p['plugin']})", p["path"])
-        mine = (sorted(USER_DIR.glob("*.json")) + sorted(USER_DIR.glob("*.py"))) if USER_DIR.exists() else []
-        for p in mine:
-            self.preset.addItem(f"{p.stem} (mine{', Python' if p.suffix == '.py' else ''})", str(p))
         self.preset.blockSignals(False)
 
     def load_preset(self, idx):
@@ -521,7 +573,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Plugins reloaded.", 5000)
 
     def open_file(self):
-        fn, _ = QFileDialog.getOpenFileName(self, "Open strategy", str(USER_DIR if USER_DIR.exists() else CONFIGS),
+        fn, _ = QFileDialog.getOpenFileName(self, "Open strategy", str(USER_DIR if USER_DIR.exists() else Path.home()),
                                             "Strategies (*.json *.py)")
         if fn:
             self.add_strategy(read_strategy(Path(fn)), Path(fn))
@@ -597,6 +649,8 @@ class MainWindow(QMainWindow):
         tf = self.data_page.time_frame()
         if tf:
             cfg = {**cfg, "time_frame": tf}
+        if self.data_page.no_costs.isChecked():  # last-traded price only: no spread, slippage or commission
+            cfg = {**cfg, "costs": {**(cfg.get("costs") or {}), "multiplier": 0.0}}
         probs = validate(cfg)
         if probs and quiet:
             self.statusBar().showMessage(f"{tab.title()}: " + "; ".join(probs), 10000)
@@ -723,7 +777,8 @@ class MainWindow(QMainWindow):
 
 def self_test(app: QApplication, win: MainWindow) -> int:
     """Run the first strategy and every test it uses headlessly; exit 0 if results appear
-    (used by CI on the built exe)."""
+    (used by CI on the built exe). Imports the starters first, which exercises that path too."""
+    win.import_starters(True, True)
     win.run()
     win.wait()
     win.backtests.run_used()
@@ -747,7 +802,7 @@ def main(argv=None, on_shown=None):
     app = QApplication(argv)
     app.setApplicationName("Titanium")
     app.setWindowIcon(app_icon())
-    win = MainWindow()
+    win = MainWindow(ask_starters="--self-test" not in argv)
     win.show()  # shown in self-test too, so CI exercises the real window system
     if on_shown:
         on_shown()

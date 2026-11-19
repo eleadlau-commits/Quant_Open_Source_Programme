@@ -4,6 +4,7 @@ from honestbt import paths
 
 
 def _home(tmp_path, monkeypatch):
+    monkeypatch.delenv("TITANIUM_HOME", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     (tmp_path / "Documents").mkdir()
     return tmp_path / "Documents"

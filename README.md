@@ -46,7 +46,7 @@ Or from Python:
 ```python
 import json
 from honestbt.runner import run_config
-out = run_config(json.load(open("configs/monday_gap_top5.json")))
+out = run_config(json.load(open("honestbt/plugins/starter/strategies/monday_gap_top5.json")))
 print(out["summary"])
 for v in out["verdicts"]:
     print(v["passed"], v["name"], v["headline"])
@@ -95,7 +95,7 @@ raises an error) and `p` holds the current positions. `decide` returns the fract
 account to hold in each name; the positions are a step function p_i(t) that changes only at
 decision times, filled at the next bar's open with costs. In the code editor, put the cursor on
 any number and press **Make knob** (Ctrl+K): it becomes a slider on the Measurements page.
-See `configs/momentum_rotation.py`.
+See `honestbt/plugins/starter/strategies/momentum_rotation.py`.
 
 ## Architecture
 
@@ -192,7 +192,7 @@ A config wires plugins together. Anywhere in strategy parameters you can write
 `{"$map": "name"}` or `{"$feature": "name"}`; it's resolved per symbol at
 decision time. `sweep` axes are dotted config paths, so you can sweep a
 strategy parameter *or* a mapping's own parameters (i.e. a family of
-functions). Example (`configs/monday_gap_top5.json`):
+functions). Example (`honestbt/plugins/starter/strategies/monday_gap_top5.json`):
 
 ```json
 "mappings": {"smooth_from_vol": {"plugin": "linear", "input": "vol20",
@@ -232,9 +232,10 @@ truth; every edit rewrites it, and Ctrl+Z in the editor undoes one):
   double-click it) to add it.
 * **Hover** over anything (a word in the settings, a patch-bay box, a button,
   a test) and the help line at the bottom of the window explains it.
-* **Presets** are ready-made strategy files to start from: the examples in
-  `configs/`, strategy families shipped in plugin packs (shown with the
-  pack's name) and your own saved files (shown as "mine").
+* **Presets** are your strategy files in Documents/Titanium plus the presets
+  of installed packs. The starter strategies are not built in: the app offers
+  to import them the first time it starts, and **Starters…** imports them any
+  time (from `honestbt/plugins/starter/`).
 * In **Verdicts**, every test is its own block: drag blocks to arrange them
   and fold the ones you've read. The layout is remembered.
 
@@ -253,7 +254,7 @@ sells at the week's last close.
 
 ## Second strategy: Nasdaq futures opening range breakout
 
-`configs/nq_orb_trend_filter.json`. A strategy sold in a video, with its rules
+`honestbt/plugins/starter/strategies/nq_orb_trend_filter.json`. A strategy sold in a video, with its rules
 written down **before** testing (each one is a patch-bay setting):
 
 | Rule | Default |

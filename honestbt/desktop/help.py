@@ -27,13 +27,14 @@ SECTIONS = {
 }
 
 UI = {
-    "preset": "Presets are ready-made strategy files to start from: the examples in configs/, strategy families "
-              "shipped inside plugin packs (marked with the pack's name), and files you saved (marked 'mine'). "
+    "preset": "Your strategy files in Documents/Titanium (including imported starters), and strategy families "
+              "shipped inside plugin packs (marked with the pack's name). "
               "Picking one loads it into the editor; nothing runs until you press Run.",
     "new": "Start a new strategy: pick the trading rules (a strategy plugin) and get a runnable starting point "
            "to build on in the patch bay.",
     "open": "Open a strategy file (.json) from disk.",
     "save": "Save the current settings as your own strategy file. It then appears in Presets as '(mine)'.",
+    "starters": "Import the starter strategies (examples) and starter code modules into Documents/Titanium.",
     "plugins": "See every plugin, switch them on or off, and import .tiplug packs.",
     "run": "Backtest the strategy in front exactly as written (Ctrl+Enter). Tests are run from the Backtests page.",
     "Data": "The datasets your strategies use, and the global data every strategy can draw on.",
