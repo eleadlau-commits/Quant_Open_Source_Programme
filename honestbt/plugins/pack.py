@@ -153,7 +153,7 @@ def check(path: str | Path, run_tests: bool = True) -> Report:
         stage = Path(tmp) / "_stage"
         shutil.copytree(folder, stage / m["id"], ignore=shutil.ignore_patterns(*SKIP, "*.pyc"))
         for s in statuses():
-            if s.source == "user" and s.id != m["id"] and Path(s.folder).is_dir() and not (stage / s.id).exists():
+            if s.source in ("user", "starter") and s.id != m["id"] and Path(s.folder).is_dir() and not (stage / s.id).exists():
                 shutil.copytree(s.folder, stage / s.id, ignore=shutil.ignore_patterns(*SKIP, "*.pyc"))
         from ..patchbay import validate
 
@@ -303,7 +303,7 @@ def new(plugin_id: str, kind: str, base: str | Path | None = None, author: str =
             (sub / f"{plugin_id}.json").write_text(json.dumps(
                 [{"plugin": "out_of_sample", "params": {"split": 0.6}}, {"plugin": "deflated_sharpe"}], indent=2))
         else:
-            (sub / f"{plugin_id}.json").write_text((BUILTIN_DIR / "gap-families" / "presets" /
+            (sub / f"{plugin_id}.json").write_text((BUILTIN_DIR.parent / "starter" / "gap-families" / "presets" /
                                                     "monday-ranking-family.json").read_text())
         (folder / "tests" / f"test_{name}.py").write_text(
             "def test_placeholder():\n    assert True  # replace with a real check\n")

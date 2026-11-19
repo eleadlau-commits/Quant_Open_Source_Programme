@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(scope="session")
 def base_config():
-    return json.loads((ROOT / "configs" / "monday_gap_top5.json").read_text())
+    return json.loads((ROOT / "honestbt" / "plugins" / "starter" / "strategies" / "monday_gap_top5.json").read_text())
 
 
 @pytest.fixture(scope="session")

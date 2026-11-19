@@ -9,6 +9,46 @@ QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 QtCore = pytest.importorskip("PySide6.QtCore")
 
 
+# The strategies are starters now: import them into the (temporary) Titanium folder first.
+from honestbt import starters as _starters  # noqa: E402
+_starters.import_strategies()
+_starters.import_modules()
+
+
+def test_starters_import_into_a_folder_without_overwriting(tmp_path):
+    from honestbt import starters
+    added = starters.import_strategies(tmp_path)
+    assert {"monday_gap_top5.json", "nq_orb_trend_filter.json", "momentum_rotation.py"} <= set(added)
+    (tmp_path / "monday_gap_top5.json").write_text("{}")  # your edits are kept
+    assert starters.import_strategies(tmp_path) == [] and (tmp_path / "monday_gap_top5.json").read_text() == "{}"
+    mods = starters.import_modules(tmp_path)
+    assert "momentum.py" in mods and starters.have_strategies(tmp_path)
+    from honestbt.desktop.snippets import load_code_modules
+    found = load_code_modules(starters.modules_dir(tmp_path))
+    assert found["momentum"][0] == "Data → Data" and found["top_n_equal_weight"][0] == "Data → Buy/Sell"
+
+
+def test_no_costs_toggle_removes_trading_costs():
+    import json
+    from honestbt.desktop.app import MainWindow
+    _app()
+    w = MainWindow()
+    cfg = json.loads(w.editor.toPlainText())
+    cfg["data"]["params"].update(n_symbols=15, n_days=50)
+    w.editor.setPlainText(json.dumps(cfg))
+    try:
+        assert not w.data_page.no_costs.isChecked()  # off by default: costs are paid
+        assert w._checked_config(w.tab).get("costs", {}).get("multiplier", 1) != 0
+        w.data_page.no_costs.setChecked(True)
+        assert w._checked_config(w.tab)["costs"]["multiplier"] == 0.0
+        w.run()
+        w.wait(60)
+        tr = w.tab.report["selected"]["trades"]
+        assert tr and all(abs(t["gross_return"] - t["net_return"]) < 1e-12 for t in tr)
+    finally:
+        w.data_page.no_costs.setChecked(False)
+
+
 def _app():
     return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
@@ -180,7 +220,7 @@ def test_new_config_starts_from_a_runnable_example():
     from pathlib import Path
     from honestbt.desktop import builder
     from honestbt.patchbay import validate
-    examples = sorted(Path("configs").glob("*.json"))
+    examples = sorted(Path("honestbt/plugins/starter/strategies").glob("*.json"))
     cfg = builder.new_config("opening_range_breakout", examples)
     assert cfg["strategy"]["plugin"] == "opening_range_breakout" and cfg["name"].startswith("My ")
     assert not validate(cfg)

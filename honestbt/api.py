@@ -17,7 +17,7 @@ from .runner import run_config
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
-CONFIGS = ROOT / "configs"
+CONFIGS = ROOT / "honestbt" / "plugins" / "starter" / "strategies"  # the example strategies
 
 load_plugins()
 app = FastAPI(title="honestbt", version="0.1.0")

@@ -4,6 +4,7 @@ The app used to be called Strategy Lab. If an old ~/Documents/Strategy Lab
 folder exists and no Titanium folder does yet, it is renamed once, so saved
 strategies, plugins and settings carry over.
 """
+import os
 from pathlib import Path
 
 APP_NAME = "Titanium"
@@ -11,6 +12,8 @@ _OLD_NAME = "Strategy Lab"
 
 
 def app_dir() -> Path:
+    if os.environ.get("TITANIUM_HOME"):  # tests and portable setups
+        return Path(os.environ["TITANIUM_HOME"])
     docs = Path.home() / "Documents"
     new, old = docs / APP_NAME, docs / _OLD_NAME
     if old.is_dir() and not new.exists():

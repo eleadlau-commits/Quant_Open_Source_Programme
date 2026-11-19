@@ -46,7 +46,6 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "..\dist\Titanium\*"; DestDir: "{app}\Titanium"; Components: bundled; Flags: recursesubdirs ignoreversion
 ; use-my-Python: the source tree
 Source: "..\honestbt\*"; DestDir: "{app}\honestbt"; Components: source; Excludes: "__pycache__,*.pyc"; Flags: recursesubdirs ignoreversion
-Source: "..\configs\*"; DestDir: "{app}\configs"; Components: source; Flags: recursesubdirs ignoreversion
 Source: "..\pyproject.toml"; DestDir: "{app}"; Components: source; Flags: ignoreversion
 Source: "assets\titanium.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion

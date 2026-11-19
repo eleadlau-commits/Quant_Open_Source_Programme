@@ -26,7 +26,9 @@ include = ["honestbt*"]
 # plugin folders are read from disk, not imported as packages
 "honestbt.desktop" = ["assets/*.png"]
 "honestbt.plugins" = ["builtin/*/*.json", "builtin/*/*.py", "builtin/*/*.md", "builtin/*/suites/*.json",
-                      "builtin/*/presets/*.json", "builtin/*/tests/*.py"]
+                      "builtin/*/presets/*.json", "builtin/*/tests/*.py",
+                      "starter/*/*.json", "starter/*/*.py", "starter/*/*.md", "starter/*/presets/*.json",
+                      "starter/*/tests/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "honestbt/plugins/builtin"]
