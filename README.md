@@ -52,6 +52,51 @@ for v in out["verdicts"]:
     print(v["passed"], v["name"], v["headline"])
 ```
 
+## The window
+
+Four pages:
+
+- **Data**: the datasets your strategies run on, the time frame every run uses, and the global
+  data: core (last traded price), complementary (news, events, income: `F.series_last(...)`) and
+  generated (feature plugins).
+- **Strategies**: one tab per strategy (S1, S2, … and **+**), plus the default strategy (hold
+  everything in the dataset). A strategy is either built in the patch bay from plugins (`.json`)
+  or written as one Python file (`.py`, see below). The module library groups modules as
+  Data → Data and Data → Buy/Sell.
+- **Measurements**: one tab per measure of success; for now **Profit**. Tick strategies to compare,
+  show the default strategy, zoom in time, and turn a Python strategy's knobs.
+- **Backtests**: one list of tests for every strategy. Nothing runs by itself: double-click one,
+  select a few and press *Run selected*, or *Run all* (every test the strategy ticks).
+
+The app runs each strategy exactly as written (no parameter sweep).
+
+### A strategy as one Python file
+
+```python
+"""Hold the strongest names"""
+from honestbt.sdk import knob
+
+SETTINGS = {"data": {"plugin": "synthetic", "params": {"n_symbols": 40}},
+            "decide_at": "09:45", "every": "week", "evaluators": [{"plugin": "bootstrap"}]}
+
+def momentum(F, symbol, days):          # Data -> Data module
+    c = F.daily(symbol).close
+    return c[-1] / c[-days - 1] - 1 if len(c) > days else None
+
+def decide(F, p):                       # Data -> Buy/Sell: the positions to hold now
+    days = knob("days", 20, lo=5, hi=120)
+    scores = {s: momentum(F, s, days) for s in F.universe()}
+    best = sorted((s for s in scores if scores[s]), key=scores.get, reverse=True)[:5]
+    return {s: 1 / len(best) for s in best}
+```
+
+At each decision time t_j, `F` holds all data up to t_j (and nothing later: asking for more
+raises an error) and `p` holds the current positions. `decide` returns the fraction of the
+account to hold in each name; the positions are a step function p_i(t) that changes only at
+decision times, filled at the next bar's open with costs. In the code editor, put the cursor on
+any number and press **Make knob** (Ctrl+K): it becomes a slider on the Measurements page.
+See `configs/momentum_rotation.py`.
+
 ## Architecture
 
 ```

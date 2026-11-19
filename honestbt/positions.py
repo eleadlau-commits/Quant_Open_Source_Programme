@@ -69,7 +69,8 @@ def run(data: MarketData, cfg: dict, decision_filter=None):
     cost = CostModel(**(cfg.get("costs") or {}))
     max_gross = float(p.get("max_gross", 1.0))
     every = p.get("every", "day")
-    times = decision_times(data, p.get("decide_at", "15:50"), every, p.get("start"), p.get("end"))
+    from .engine import in_time_frame
+    times = in_time_frame(cfg, decision_times(data, p.get("decide_at", "15:50"), every, p.get("start"), p.get("end")))
     if decision_filter is not None:
         times = [t for t in times if decision_filter(t)]
 

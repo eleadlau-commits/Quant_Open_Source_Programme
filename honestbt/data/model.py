@@ -102,6 +102,9 @@ class MarketData:
         # Shared cache for feature values; keys include the decision time, so it
         # can never leak information across time.
         self.feature_cache: dict = {}
+        # Complementary data C_j(t), by name: pandas Series/DataFrame indexed by the time each value
+        # became known (one column per symbol for a DataFrame). Read it through GuardedView.series().
+        self.series: dict = {}
 
     def first_date(self, symbol: str):
         d = self.daily[symbol].date

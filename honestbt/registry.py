@@ -12,6 +12,9 @@ mapping    -> callable(x, **params) -> float                  (pure function, a 
 signal     -> callable(path, ctx, **params) -> np.ndarray[bool]  (must be causal)
 strategy   -> class with decision_times / max_exit_time / decide
 evaluator  -> callable(ectx, **params) -> Verdict
+complementary -> callable(market, **params) -> {name: pandas Series or DataFrame}
+              complementary data C_j(t) (news, events, income...), indexed by the time each
+              value became known; a DataFrame has one column per symbol
 
 Plugins live in folders, one per plugin (see ``honestbt.plugins``): the
 built-in ones under ``honestbt/plugins/builtin/`` and your own in the user
@@ -25,7 +28,7 @@ from dataclasses import asdict, dataclass, field
 from importlib.metadata import entry_points
 from typing import Any, Callable
 
-KINDS = ("data", "feature", "mapping", "signal", "strategy", "evaluator")
+KINDS = ("data", "feature", "mapping", "signal", "strategy", "evaluator", "complementary")
 _REGISTRY: dict[str, dict[str, Any]] = {k: {} for k in KINDS}
 _owner = ""  # set by the loader while a plugin's code runs
 

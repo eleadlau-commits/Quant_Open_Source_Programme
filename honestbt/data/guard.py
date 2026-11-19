@@ -72,6 +72,27 @@ class GuardedView:
         lo = 0 if start is None else int(np.searchsorted(ts, np.datetime64(pd.Timestamp(start), "ns"), "left"))
         return (ts[lo:hi], arr[lo:hi]) if with_ts else arr[lo:hi]
 
+    # ---- complementary data C_j(t) ------------------------------------
+    def series_names(self) -> list[str]:
+        return sorted(self._data.series)
+
+    def series(self, name: str, symbol: str | None = None):
+        """Complementary data known by ``as_of``: a pandas Series (index = time it became known).
+
+        For per-symbol data (a DataFrame with one column per symbol) pass ``symbol``."""
+        obj = self._data.series[name]
+        known = obj.loc[: pd.Timestamp(self.as_of)]
+        if isinstance(known, pd.DataFrame):
+            if symbol is None:
+                raise ValueError(f"complementary data {name!r} is per symbol: pass symbol=")
+            return known[symbol].dropna() if symbol in known.columns else pd.Series(dtype=float)
+        return known
+
+    def series_last(self, name: str, symbol: str | None = None, default=None):
+        """The latest value of complementary data known by ``as_of`` (or ``default``)."""
+        s = self.series(name, symbol)
+        return s.iloc[-1] if len(s) else default
+
     def premarket_last(self, symbol: str) -> float:
         """Last pre-market trade price today that is visible at ``as_of``."""
         ts = self._data.ts[symbol]

@@ -177,6 +177,16 @@ def validate(cfg: dict) -> list[str]:
     data = cfg.get("data") or {}
     if data and not has("data", data.get("plugin", "")):
         problems.append(_unknown("data", "data", data.get("plugin")))
+    for i, comp in enumerate(data.get("complementary") or []):
+        if not has("complementary", (comp or {}).get("plugin", "")):
+            problems.append(_unknown(f"data.complementary[{i}]", "complementary", (comp or {}).get("plugin")))
+    tf = cfg.get("time_frame") or {}
+    for k in ("start", "end"):
+        if tf.get(k):
+            try:
+                np.datetime64(tf[k], "D")
+            except ValueError:
+                problems.append(f"time_frame.{k}: {tf[k]!r} is not a date (YYYY-MM-DD)")
     try:
         evaluators = expand_evaluators(cfg)
     except ConfigError as exc:

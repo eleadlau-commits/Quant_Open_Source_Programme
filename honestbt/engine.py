@@ -150,6 +150,17 @@ def _summarize(periods: pd.Series, trades: list[Trade], ppy: float = 52.0) -> di
     }
 
 
+def in_time_frame(cfg: dict, times: list) -> list:
+    """Keep decision times inside ``cfg["time_frame"]`` ({"start": "YYYY-MM-DD", "end": ...}, both optional)."""
+    tf = cfg.get("time_frame") or {}
+    lo = np.datetime64(tf["start"], "D") if tf.get("start") else None
+    hi = np.datetime64(tf["end"], "D") if tf.get("end") else None
+    if lo is None and hi is None:
+        return list(times)
+    days = lambda t: np.datetime64(t, "D")
+    return [t for t in times if (lo is None or days(t) >= lo) and (hi is None or days(t) <= hi)]
+
+
 def build_strategy(cfg: dict):
     spec = cfg["strategy"]
     cls = get("strategy", spec["plugin"])
@@ -199,7 +210,7 @@ def run(data: MarketData, cfg: dict, strict: bool = True, decision_filter=None) 
     period_gross: dict = {}
     checked: set[str] = set()
 
-    times = strat.decision_times(data)
+    times = in_time_frame(cfg, strat.decision_times(data))
     if decision_filter is not None:
         times = [t for t in times if decision_filter(t)]
     for t in times:

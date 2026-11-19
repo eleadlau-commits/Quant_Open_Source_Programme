@@ -112,7 +112,16 @@ class Job(QObject):
 def strategy_report(run: StrategyRun) -> dict:
     rep = run.report()
     rep["selected"] = run.result.to_json(max_trades=5000)
-    rep["default_equity"] = baseline.to_json(baseline.hold_everything(run.data))
+    eq = baseline.hold_everything(run.data)
+    tf = run.cfg.get("time_frame") or {}
+    if tf.get("start"):
+        eq = eq[eq.index >= tf["start"]]
+    if tf.get("end"):
+        eq = eq[eq.index <= tf["end"]]
+    if len(eq):
+        eq = eq / eq.iloc[0]
+    rep["default_equity"] = baseline.to_json(eq)
+    rep["time_frame"] = tf or None
     return rep
 
 
@@ -227,6 +236,8 @@ class MainWindow(QMainWindow):
         self.data_page = DataPage()
         self.data_page.hovered.connect(self.show_help)
         self.data_page.load_requested.connect(self.load_dataset)
+        self.data_page.add_complementary.connect(self.add_complementary)
+        self.data_page.time_frame_changed.connect(self._time_frame_changed)
         self.measurements = MeasurementsPage()
         knobs = self.measurements.profit.knobs
         knobs.turned.connect(self.knob_turned)
@@ -583,6 +594,9 @@ class MainWindow(QMainWindow):
             if tab.kind == "python":
                 self.statusBar().showMessage(f"{tab.title()}: " + "; ".join(ps.check(tab.source())), 10000)
             return None
+        tf = self.data_page.time_frame()
+        if tf:
+            cfg = {**cfg, "time_frame": tf}
         probs = validate(cfg)
         if probs and quiet:
             self.statusBar().showMessage(f"{tab.title()}: " + "; ".join(probs), 10000)
@@ -668,6 +682,24 @@ class MainWindow(QMainWindow):
         if self.start_job(work, lambda n: self.statusBar().showMessage(f"Ran {n} test(s) on {tab.title()}.", 8000),
                           on_progress, label=f"Running {len(specs)} test(s) on {tab.title()}…"):
             self.backtests.set_running(set(names))
+
+    def add_complementary(self, data_spec: dict, comp: dict):
+        """Attach complementary data to a dataset, in every open strategy that uses it."""
+        from .data_page import data_key
+        key = data_key(data_spec)
+        for t in self.strategies:
+            cfg = t.config()
+            if cfg and data_key(cfg.get("data") or {}) == key:
+                new_data = {**cfg["data"], "complementary": list(cfg["data"].get("complementary") or []) + [comp]}
+                t.apply_config({**cfg, "data": new_data}, f"Added {comp['plugin']} to {t.key}'s dataset")
+        self.strategies_changed()
+
+    def _time_frame_changed(self):
+        for t in self.strategies:
+            t._mark_stale()
+        tf = self.data_page.time_frame()
+        self.statusBar().showMessage(f"Time frame {tf['start']} to {tf['end']}. Run strategies again to apply it."
+                                     if tf else "Time frame: whole dataset. Run strategies again to apply it.", 8000)
 
     def load_dataset(self, spec: dict):
         def work(_progress):
