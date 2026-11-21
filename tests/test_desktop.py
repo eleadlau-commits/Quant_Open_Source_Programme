@@ -236,6 +236,13 @@ def test_data_page_lists_filters_and_describes_datasets(win, ctx, qapp):
     assert view.table.keys() == [core.id]
     assert view.details.fields.values["Contents"].text().startswith("2 stocks, minute bars")
     assert "New York time" in view.details.fields.values["Range"].text()
+    market = view.details.market.text()
+    assert market.startswith("Nasdaq (US)") and "Regular 09:30–16:00" in market and "USD" in market
+    assert "Runs trade regular hours" in market
+    assert view.table.item(0, 2).text() == "Nasdaq"
+    view.market_filter.setCurrentIndex(view.market_filter.findData("cme"))
+    assert view.stack.currentWidget() is view.no_match
+    view.market_filter.setCurrentIndex(0)
 
     gen = view.open_generate(core.id)
     gen.submit()
@@ -250,7 +257,7 @@ def test_data_page_lists_filters_and_describes_datasets(win, ctx, qapp):
 
     ctx.workspace.strategies.put("S1", StrategyGraph("S1", "Gap fade", settings={"datasets": [core.id]}))
     view.table.select(core.id)
-    assert "Gap fade" in [view.table.item(i, 5).text() for i in range(view.table.rowCount())]
+    assert "Gap fade" in [view.table.item(i, 6).text() for i in range(view.table.rowCount())]
     assert not view.remove(core.id, confirm=False)  # in use
     assert view.details.error.isVisible()
 
@@ -259,10 +266,22 @@ def test_unavailable_sources_cannot_be_added(win):
     view = win.views["data"]
     dlg = view.open_add("polygon")
     assert dlg.current().name == "synthetic_stocks"  # falls back to a source that works
-    row = [s.name for s in dlg.sources].index("polygon")
+    row = dlg.row_of["polygon"]
     assert not dlg.list.item(row).flags() & Qt.ItemIsEnabled
     dlg.list.setCurrentRow(row)
     assert not dlg.ok.isEnabled()
+    dlg.reject()
+
+
+def test_add_dataset_groups_sources_by_market(win):
+    dlg = win.views["data"].open_add()
+    headings = [dlg.list.item(i).text() for i in range(dlg.list.count()) if dlg.list.item(i).data(Qt.UserRole) is None]
+    assert headings[:2] == ["Nasdaq (US)", "CME Globex (US index futures)"] and headings[-1] == "Any market"
+    assert dlg.row_of["synthetic_stocks"] < dlg.row_of["synthetic_futures"] < dlg.row_of["file_import"]
+    dlg.list.setCurrentRow(dlg.row_of["synthetic_futures"])
+    assert dlg.current().name == "synthetic_futures" and "Makes CME data" in dlg.doc.text()
+    dlg.list.setCurrentRow(0)  # a heading can't be picked
+    assert dlg.current().name == "synthetic_futures"
     dlg.reject()
 
 

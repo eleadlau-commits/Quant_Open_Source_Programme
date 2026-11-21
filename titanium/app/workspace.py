@@ -76,12 +76,14 @@ class Workspace:
         return self.run_defaults.apply(base, *layers)
 
     # ---- markets: built in, or added by plugins; the app can edit their defaults -------
-    def markets(self) -> dict[str, Market]:
-        """Every market by id, with the app's edits to its defaults."""
+    def markets(self, edited: bool = True) -> dict[str, Market]:
+        """Every market by id, with the app's edits to its defaults (``edited=False``: as the market ships)."""
         out = dict(MARKETS)
         for entry in self.registry.entries(Library.MARKETS):
             if isinstance(entry.obj, Market):
                 out.setdefault(entry.obj.id, entry.obj)
+        if not edited:
+            return out
         return {mid: m.with_defaults(self.market_defaults[mid]) if mid in self.market_defaults else m
                 for mid, m in out.items()}
 

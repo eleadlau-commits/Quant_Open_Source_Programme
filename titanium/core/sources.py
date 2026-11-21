@@ -36,6 +36,7 @@ class Source:
     available = True
     order = 50  # position in the add dialog
     market: Market = NASDAQ
+    any_market = False  # the person picks the market (an import), or the source spans several
 
     def resolve(self, spec: SourceSpec | dict[str, Any] | None = None) -> dict[str, Any]:
         given = spec.params if isinstance(spec, SourceSpec) else (spec or {})
@@ -258,6 +259,7 @@ class FileImport(Source):
 
     order = 30
     name = "file_import"
+    any_market = True
     title = "Import files"
     doc = "Parquet or CSV files on this computer, copied into the data folder."
     params = [
@@ -397,6 +399,7 @@ class Polygon(Download):
 class Databento(Download):
     order = 90
     name = "databento"
+    any_market = True
     title = "Databento"
     doc = "US stock and futures minute bars from Databento. Coming later."
 

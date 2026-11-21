@@ -1,7 +1,8 @@
 """Settings, tucked in the corner of the navigation rail.
 
-Appearance and Skin set the look. Defaults for every run are what the engine starts a
-run with (``Workspace.run_defaults``). Module library sets the folder the library's own
+Appearance and Skin set the look. Defaults for every run are the app-wide values a run
+starts with (``Workspace.run_defaults``). Markets shows each market's sessions and holidays
+and edits its defaults: trading hours, decision time and costs (``Workspace.set_market_defaults``). Module library sets the folder the library's own
 modules are read from. Plugins lists every plugin, on or off and why, switches them,
 and imports ``.tiplug`` packs. Layout shows where every view lives (page or dock).
 """
@@ -9,16 +10,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from datetime import date
+
+from PySide6.QtCore import QTime, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QVBoxLayout
+from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QTimeEdit, QVBoxLayout, QWidget
 
 from ...app import paths
 from ...app.settings import EVERY, RunDefaults
+from ...core.markets import Market, MarketDefaults
 from ...core.plugins import Library
 from ..design import skins, theme
 from ..design import tokens as T
 from ..design.components import Card, ItemRow, Segmented, Switch, badge, button, divider, hbox, label
+from ..market_text import holidays_text, sessions_text, tz_name
 from ..views import DOCK, PAGE
 from ._base import PageView
 
@@ -40,13 +45,14 @@ class SettingsView(PageView):
         self._build_appearance()
         self._build_skin()
         self._build_run_defaults()
+        self._build_markets()
         self._build_library()
         self._build_plugins()
         self._build_layout()
         self.column.addStretch()
 
     def subtitle(self) -> str:
-        return "Appearance, run defaults, the module library, plugins and layout."
+        return "Appearance, run defaults, markets, the module library, plugins and layout."
 
     @property
     def workspace(self):
@@ -158,6 +164,25 @@ class SettingsView(PageView):
     def _save_run_defaults(self, *_):
         if self.ctx is not None:
             self.ctx.save_run_defaults(self.run_defaults())
+
+    # ---- markets ------------------------------------------------------------------------
+    def _build_markets(self) -> None:
+        card = Card("Markets", "Where instruments trade: sessions, holidays and the defaults runs on each "
+                               "market start with. Markets come with the app or from plugins.")
+        self.market_rows: dict[str, MarketRow] = {}
+        markets = self.workspace.markets() if self.workspace is not None else {}
+        own = self.workspace.markets(edited=False) if self.workspace is not None else {}
+        for i, (mid, m) in enumerate(markets.items()):
+            if i:
+                card.body.addWidget(divider())
+            row = MarketRow(m, own[mid].defaults, self._save_market)
+            self.market_rows[mid] = row
+            card.body.addWidget(row)
+        self.column.addWidget(card)
+
+    def _save_market(self, market_id: str, defaults: MarketDefaults | None) -> None:
+        if self.ctx is not None:
+            self.ctx.save_market_defaults(market_id, defaults)
 
     # ---- module library ----------------------------------------------------------------
     def _build_library(self) -> None:
@@ -342,6 +367,116 @@ class SettingsView(PageView):
             self.layout_grid.addWidget(label(f"as a dock, shows on {where}", "caption"), r, 2)
             self.host_boxes[spec.view_id] = box
         self.layout_grid.setColumnStretch(2, 1)
+
+
+class MarketRow(QWidget):
+    """One market: its sessions and holidays, and its defaults to edit."""
+
+    def __init__(self, market: Market, own: MarketDefaults, on_change, parent=None):
+        super().__init__(parent)
+        self.market, self.own, self.on_change = market, own, on_change
+        col = QVBoxLayout(self)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(S["sm"])
+        d = market.defaults
+        col.addLayout(hbox(label(market.name, "title"), badge(market.currency), None))
+        col.addWidget(label(f"{sessions_text(market)}, {tz_name(market.tz)} time", "muted", wrap=True))
+        if market.notes:
+            col.addWidget(label(market.notes, "caption", wrap=True))
+        year = date.today().year
+        n = len(market.holidays(year))
+        self.holidays = label(holidays_text(market, year), "mono", wrap=True)
+        self.holidays.hide()
+        self.holidays_button = button(f"Holidays in {year} ({n})", "ghost", tip="Days without a trading day")
+        self.holidays_button.setCheckable(True)
+        self.holidays_button.toggled.connect(self.holidays.setVisible)
+        col.addLayout(hbox(self.holidays_button, None))
+        col.addWidget(self.holidays)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(S["xl"])
+        grid.setVerticalSpacing(S["md"])
+        self.extended = Switch(d.extended_hours, "Trade outside the regular session too")
+        self.decide_at = QTimeEdit(QTime.fromString(d.decide_at, "HH:mm"))
+        self.decide_at.setDisplayFormat("HH:mm")
+        self.decide_at.setFixedWidth(FIELD_WIDTH)
+        self.decide_at.setToolTip("When strategies decide, in the market's local time.")
+        self.hours = label("", "caption")
+        left = [("All sessions", hbox(self.extended, self.hours, None)), ("Decides at", self.decide_at)]
+        self._say_hours()
+        self.half_spread = _number(d.half_spread_bps, 0, 1_000, decimals=2, step=0.5, suffix=" bps")
+        self.half_spread.setToolTip("Half the bid-ask spread paid on each fill, in basis points of the price.")
+        self.slippage = _number(d.slippage_bps, 0, 1_000, decimals=2, step=0.5, suffix=" bps")
+        self.slippage.setToolTip("Slippage on each fill, in basis points of the price.")
+        self.commission = _number(d.commission_per_share, 0, 10, decimals=4, step=0.001, suffix=" per share")
+        self.futures_commission = _number(d.futures_commission, 0, 100, decimals=2, step=0.05, suffix=" per side")
+        self.futures_commission.setToolTip("Commission per contract per side, in currency.")
+        self.futures_slippage = _number(d.futures_slippage_ticks, 0, 100, decimals=1, step=0.5, suffix=" ticks")
+        right = []
+        if market.trades("stock"):
+            right += [("Stock half spread", self.half_spread), ("Stock slippage", self.slippage),
+                      ("Stock commission", self.commission)]
+        if market.trades("future"):
+            right += [("Futures commission", self.futures_commission), ("Futures slippage", self.futures_slippage)]
+        for c, rows in ((0, left), (2, right)):
+            for r, (text, w) in enumerate(rows):
+                grid.addWidget(label(text, "label"), r, c)
+                if isinstance(w, QWidget):
+                    grid.addWidget(w, r, c + 1)
+                else:
+                    grid.addLayout(w, r, c + 1)
+        grid.setColumnStretch(4, 1)
+        col.addLayout(grid)
+        self.reset = button("Use the market's own", "ghost", tip="Go back to the defaults this market comes with")
+        self.reset.clicked.connect(self.use_own)
+        col.addLayout(hbox(self.reset, None))
+        self.reset.setVisible(d != own)
+
+        for w in (self.half_spread, self.slippage, self.commission, self.futures_commission, self.futures_slippage):
+            w.valueChanged.connect(self._changed)
+        self.extended.toggled.connect(self._changed)
+        self.extended.toggled.connect(self._say_hours)
+        self.decide_at.timeChanged.connect(self._changed)
+
+    def _say_hours(self, *_):
+        reg = self.market.session()
+        self.hours.setText("On: runs trade every session" if self.extended.isChecked()
+                           else f"Off: regular hours only ({reg.start:%H:%M}–{reg.end:%H:%M})")
+
+    def defaults(self) -> MarketDefaults:
+        return MarketDefaults(extended_hours=self.extended.isChecked(),
+                              decide_at=self.decide_at.time().toString("HH:mm"),
+                              half_spread_bps=self.half_spread.value(), slippage_bps=self.slippage.value(),
+                              commission_per_share=self.commission.value(),
+                              futures_commission=self.futures_commission.value(),
+                              futures_slippage_ticks=self.futures_slippage.value())
+
+    def show_defaults(self, d: MarketDefaults) -> None:
+        widgets = (self.extended, self.decide_at, self.half_spread, self.slippage, self.commission,
+                   self.futures_commission, self.futures_slippage)
+        for w in widgets:
+            w.blockSignals(True)
+        self.extended.setChecked(d.extended_hours)
+        self.decide_at.setTime(QTime.fromString(d.decide_at, "HH:mm"))
+        self.half_spread.setValue(d.half_spread_bps)
+        self.slippage.setValue(d.slippage_bps)
+        self.commission.setValue(d.commission_per_share)
+        self.futures_commission.setValue(d.futures_commission)
+        self.futures_slippage.setValue(d.futures_slippage_ticks)
+        for w in widgets:
+            w.blockSignals(False)
+        self.extended.update()
+        self._say_hours()
+        self.reset.setVisible(d != self.own)
+
+    def use_own(self) -> None:
+        self.show_defaults(self.own)
+        self.on_change(self.market.id, None)
+
+    def _changed(self, *_):
+        d = self.defaults()
+        self.reset.setVisible(d != self.own)
+        self.on_change(self.market.id, None if d == self.own else d)
 
 
 def _form() -> QFormLayout:

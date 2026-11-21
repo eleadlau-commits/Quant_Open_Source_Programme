@@ -36,7 +36,7 @@ def page(qapp, ctx):
 def test_the_page_keeps_its_cards(page):
     from titanium.desktop.design.components import Card
     titles = [c.findChildren(type(page.skin_about))[0].text() for c in page.findChildren(Card)]
-    for t in ("Appearance", "Skin", "Defaults for every run", "Module library", "Plugins", "Layout"):
+    for t in ("Appearance", "Skin", "Defaults for every run", "Markets", "Module library", "Plugins", "Layout"):
         assert t in titles
 
 
@@ -75,6 +75,26 @@ def test_market_defaults_are_saved_and_old_run_costs_move_to_markets(home):
     again.save_market_defaults("xnas", None)
     assert AppContext(QSettings(path, QSettings.IniFormat), Workspace()).workspace.market("xnas").defaults == \
         NASDAQ.defaults
+
+
+def test_markets_card_shows_sessions_and_edits_defaults(page, ctx, home):
+    from titanium.core.markets import CME_GLOBEX
+
+    assert set(page.market_rows) >= {"xnas", "cme"}
+    cme = page.market_rows["cme"]
+    assert cme.extended.isChecked() and not cme.reset.isVisible()
+    assert cme.futures_slippage.isVisibleTo(page) and cme.half_spread.parent() is None  # CME lists futures only
+    assert "Christmas Day: closed" in cme.holidays.text()
+    cme.futures_slippage.setValue(2)
+    assert ctx.workspace.market("cme").defaults.futures_slippage_ticks == 2 and cme.reset.isVisible()
+    again = AppContext(QSettings(str(home / "settings.ini"), QSettings.IniFormat), Workspace())
+    assert again.workspace.market("cme").defaults.futures_slippage_ticks == 2
+    assert SettingsView(again).market_rows["cme"].futures_slippage.value() == 2
+    cme.use_own()
+    assert ctx.workspace.market("cme").defaults == CME_GLOBEX.defaults and not cme.reset.isVisible()
+    xnas = page.market_rows["xnas"]
+    xnas.extended.setChecked(True)
+    assert ctx.workspace.run_settings(market="xnas")["extended_hours"] is True
 
 
 def test_every_plugin_is_listed_with_a_switch(page, ctx):

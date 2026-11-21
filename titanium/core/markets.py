@@ -104,8 +104,18 @@ class Market:
     sessions: tuple[Session, ...]
     regular: str = "regular"  # the session that counts as "the trading day"
     notes: str = ""
+    short_name: str = ""  # for tables, e.g. "Nasdaq"
+    kinds: tuple[str, ...] = ()  # instrument kinds it lists (``InstrumentKind`` values); empty: any
     calendar: Calendar | None = field(default=None, compare=False, repr=False)
     defaults: MarketDefaults = field(default_factory=MarketDefaults, compare=False, repr=False)
+
+    @property
+    def short(self) -> str:
+        return self.short_name or self.name
+
+    def trades(self, kind: str) -> bool:
+        """Whether instruments of ``kind`` ("stock", "future") list here."""
+        return not self.kinds or kind in self.kinds
 
     @property
     def tz(self) -> ZoneInfo:
@@ -145,6 +155,8 @@ NASDAQ = Market(
         Session("regular", time(9, 30), time(16, 0)),
         Session("post", time(16, 0), time(20, 0)),
     ),
+    short_name="Nasdaq",
+    kinds=("stock",),
     calendar=NasdaqCalendar(),
     defaults=MarketDefaults(extended_hours=False),  # stocks trade the regular session unless asked
 )
@@ -163,6 +175,8 @@ CME_GLOBEX = Market(
         Session("close", time(16, 0), time(17, 0)),
     ),
     notes="On US holidays Globex closes or halts early and doesn't settle that day.",
+    short_name="CME",
+    kinds=("future",),
     calendar=CmeEquityCalendar(),
     defaults=MarketDefaults(extended_hours=True),  # futures trade round the clock
 )
