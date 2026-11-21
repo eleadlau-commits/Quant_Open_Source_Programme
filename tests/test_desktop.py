@@ -28,12 +28,13 @@ def test_four_pages_and_settings_in_the_corner(win):
 
 
 def test_docks_show_only_on_their_page(win, qapp):
-    assert not win.docks["knobs"].isVisible()
+    assert not win.docks["module_library"].isVisible()
     win.show_page("strategies")
     qapp.processEvents()
-    assert win.docks["knobs"].isVisible()
+    assert win.docks["module_library"].isVisible()
+    assert not win.docks["knobs"].isVisible() and not win.docks["trade_log"].isVisible()  # pop-outs start hidden
     win.show_page("compare")
-    assert not win.docks["knobs"].isVisible()
+    assert not win.docks["module_library"].isVisible()
 
 
 def test_a_view_moves_between_page_and_dock_and_is_remembered(win, ctx, qapp):

@@ -37,7 +37,7 @@ STRATEGY_VIEWS = (
 class StrategyTab(QWidget):
     """One strategy: a switch between its three views."""
 
-    def __init__(self, graph: StrategyGraph, workspace=None, open_page=None):
+    def __init__(self, graph: StrategyGraph, workspace=None, open_page=None, app_ctx=None):
         super().__init__()
         self.graph = graph
         self.workspace = workspace
@@ -57,7 +57,7 @@ class StrategyTab(QWidget):
                 self.code = CodeView(graph, workspace)
                 self.views.addWidget(self.code)
             else:
-                self.run_view = RunView(graph, workspace, open_page)
+                self.run_view = RunView(graph, workspace, open_page, app_ctx=app_ctx)
                 self.views.addWidget(self.run_view)
         lay.addWidget(self.views, 1)
         self.run_btn.clicked.connect(self.run)
@@ -202,7 +202,7 @@ class StrategiesView(View):
         ws = self.ctx.workspace if self.ctx is not None else None
         if ws is not None:
             ws.strategies.put(graph.id, graph)
-        tab = StrategyTab(graph, ws, self.ctx.open_page if self.ctx is not None else None)
+        tab = StrategyTab(graph, ws, self.ctx.open_page if self.ctx is not None else None, self.ctx)
         i = self.tabs.addTab(tab, f"{graph.id}  {graph.name}")
         self.tabs.tabBar().setTabButton(i, QTabBar.RightSide, self._close_button(tab))
         self.tabs.setCurrentIndex(i)

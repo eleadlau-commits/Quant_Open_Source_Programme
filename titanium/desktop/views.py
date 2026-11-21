@@ -47,6 +47,7 @@ class View(QWidget):
     pages: tuple[str, ...] = ()  # when docked: the pages it belongs to (empty = all)
     nav: bool = True  # when a page: listed in the navigation rail
     order: int = 100  # position in the navigation rail
+    starts_hidden: bool = False  # when docked: hidden until shown (a pop-out of something a page already has)
 
     def __init__(self, app_ctx=None, parent=None):
         super().__init__(parent)
@@ -71,6 +72,7 @@ class ViewSpec:
     nav: bool = True
     order: int = 100
     extra: dict = field(default_factory=dict)
+    starts_hidden: bool = False
 
 
 class ViewRegistry:
@@ -85,7 +87,8 @@ class ViewRegistry:
         if cls.view_id in self._specs:
             raise ValueError(f"view {cls.view_id!r} registered twice")
         self._specs[cls.view_id] = ViewSpec(cls.view_id, cls, cls.default_host, cls.title, cls.icon,
-                                            cls.pages, cls.nav, cls.order)
+                                            cls.pages, cls.nav, cls.order,
+                                            starts_hidden=getattr(cls, "starts_hidden", False))
         return cls
 
     def specs(self) -> list[ViewSpec]:

@@ -21,6 +21,7 @@ from ...core.run import RunRecord
 from ...core.strategy import StrategyGraph
 from .. import tasks
 from .run_settings import RunSettings, resolve, summary
+from .strategy_panels import KnobsPanel, TradeLogPanel
 from ..backtest_queue import BacktestQueue
 from ..design import tokens as T
 from ..design.chart import MAIN, RIGHT, SUB, ChartMarker, ChartSeries, TimeChart
@@ -60,8 +61,9 @@ class RunView(QWidget):
 
     running_changed = Signal(bool, str)
 
-    def __init__(self, graph: StrategyGraph, workspace=None, open_page=None, parent=None):
+    def __init__(self, graph: StrategyGraph, workspace=None, open_page=None, parent=None, app_ctx=None):
         super().__init__(parent)
+        self.app_ctx = app_ctx  # to hide the in-tab knobs and trade log while they are popped out
         self.graph = graph
         self.workspace = workspace
         self.open_page = open_page  # an Event the shell listens to (to show the trade log dock)
@@ -92,17 +94,12 @@ class RunView(QWidget):
         self.dataset.setToolTip("The dataset this strategy trades")
         self.dataset.activated.connect(self._pick_dataset)
         self.status = label("Not run yet. Press Run or Ctrl+Enter.", "caption", wrap=True)
-        self.knobs_btn = button("Knobs", "ghost", "knob", "Show the Knobs panel: turn one and the strategy runs again")
-        self.knobs_btn.clicked.connect(lambda: self._show("knobs"))
-        self.log_btn = button("Trade log", "ghost", "list", "Show the trade log")
-        self.log_btn.clicked.connect(lambda: self._show("trade_log"))
         self.settings_btn = button("Run settings", "ghost", "settings",
                                    "Market, trading hours, decision time, capital and costs for this strategy")
         self.settings_btn.setCheckable(True)
         self.market_line = label("", "caption", wrap=True)
         self.market_line.setToolTip("The market this strategy trades, the hours it trades and when it decides")
-        lay.addLayout(flow(label("DATASET", "overline"), self.dataset, None, self.settings_btn,
-                           self.knobs_btn, self.log_btn, spacing=S["md"]))
+        lay.addLayout(flow(label("DATASET", "overline"), self.dataset, None, self.settings_btn, spacing=S["md"]))
         lines = QVBoxLayout()
         lines.setSpacing(S["xxs"])
         lines.addWidget(self.market_line)
@@ -183,6 +180,22 @@ class RunView(QWidget):
             self.bt_queue.result.connect(lambda _r: self._show_verdicts())
             self.bt_queue.idle.connect(self._bt_idle)
         body.addWidget(self.backtest_card, 1, 0)
+
+        # this strategy's knobs and trade log; each can pop out as a dock that follows the tab in front
+        self.knobs_card = Card("Knobs", "Turn one and the strategy runs again.")
+        self.knobs = KnobsPanel(workspace, graph.id)
+        self.knobs_card.body.addWidget(self.knobs)
+        self.knobs_card.body.addStretch()
+        self.knobs_card.setMinimumWidth(260)
+        self.knobs_card.setMaximumWidth(340)
+        self.knobs_card.add_action(self._pop_button("knobs"))
+        body.addWidget(self.knobs_card, 0, 1, 2, 1)
+        self.log_card = Card("Trade log")
+        self.trade_log = TradeLogPanel(workspace, graph.id)
+        self.log_card.body.addWidget(self.trade_log, 1)
+        self.log_card.add_action(self._pop_button("trade_log"))
+        body.addWidget(self.log_card, 2, 0, 1, 2)
+        body.setColumnStretch(0, 1)
         body.setRowStretch(0, 1)
         lay.addLayout(body, 1)
 
@@ -202,9 +215,23 @@ class RunView(QWidget):
             workspace.datasets.removed.connect(self._datasets_changed)
             workspace.run_defaults_changed.connect(self._defaults_changed)
             workspace.market_defaults_changed.connect(self._defaults_changed)
+        if app_ctx is not None:
+            for vid in ("knobs", "trade_log"):
+                self._panel_open(vid, bool(app_ctx.panels.get(vid)))
+            app_ctx.panel_open.connect(self._panel_open)
         self._fill_datasets()
         self.set_graph(graph)
         self.redraw()
+
+    def _pop_button(self, view_id: str):
+        b = button("Pop out", "ghost", "dock", "Show it in its own panel, following the strategy tab in front")
+        b.clicked.connect(lambda: self._show(view_id))
+        return b
+
+    def _panel_open(self, view_id: str, is_open: bool) -> None:
+        card = {"knobs": self.knobs_card, "trade_log": self.log_card}.get(view_id)
+        if card is not None:
+            card.setVisible(not is_open)
 
     def _show(self, view_id: str) -> None:
         if self.open_page is not None:
@@ -219,6 +246,10 @@ class RunView(QWidget):
             self.workspace.datasets.removed.disconnect(self._datasets_changed)
             self.workspace.run_defaults_changed.disconnect(self._defaults_changed)
             self.workspace.market_defaults_changed.disconnect(self._defaults_changed)
+        self.knobs.detach()
+        self.trade_log.detach()
+        if self.app_ctx is not None:
+            self.app_ctx.panel_open.disconnect(self._panel_open)
 
     # ---- pickers ----------------------------------------------------------------------
     def _measurements(self, kind: str, scope: Scope | None = None) -> list:
