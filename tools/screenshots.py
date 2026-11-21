@@ -82,6 +82,11 @@ def shoot_run(app, tmp: Path, sample: Path, out: Path, mode: str) -> None:
     tab.run_view.local_pick.setCurrentIndex(tab.run_view.local_pick.findText("Weights"))
     settle(app)
     win.grab().save(str(out / f"strategy-run-{mode}.png"))
+    tab.run_view.settings_btn.setChecked(True)  # the Run settings panel: where each value comes from
+    settle(app)
+    win.grab().save(str(out / f"strategy-run-settings-{mode}.png"))
+    win.show_page("data")
+    settle(app)
     win.close()
 
 

@@ -101,9 +101,13 @@ class RunView(QWidget):
         self.settings_btn.setCheckable(True)
         self.market_line = label("", "caption", wrap=True)
         self.market_line.setToolTip("The market this strategy trades, the hours it trades and when it decides")
-        lay.addLayout(flow(label("DATASET", "overline"), self.dataset, self.market_line, None, self.settings_btn,
+        lay.addLayout(flow(label("DATASET", "overline"), self.dataset, None, self.settings_btn,
                            self.knobs_btn, self.log_btn, spacing=S["md"]))
-        lay.addWidget(self.status)
+        lines = QVBoxLayout()
+        lines.setSpacing(S["xxs"])
+        lines.addWidget(self.market_line)
+        lines.addWidget(self.status)
+        lay.addLayout(lines)
         self.settings_card = RunSettings()
         self.settings_card.hide()
         self.settings_btn.toggled.connect(self.settings_card.setVisible)
@@ -281,7 +285,7 @@ class RunView(QWidget):
         """The market line and the Run settings panel, for the settings the next run will use."""
         self.settings_card.set_strategy(self.workspace, self.graph)
         market, _layers, cfg = resolve(self.workspace, self.graph)
-        self.market_line.setText(summary(market, cfg))
+        self.market_line.setText(f"Next run: {summary(market, cfg)}")
 
     def _defaults_changed(self, *_):
         self._show_settings()
@@ -377,7 +381,7 @@ class RunView(QWidget):
         market = (self.workspace.markets().get(record.market) if self.workspace is not None else None) \
             or MARKETS.get(record.market)
         where = f"{summary(market, record.settings)} · " if market is not None else ""
-        self._say(f"{where}{len(record.states)} steps, {n} trade{'s' * (n != 1)}, {took:.1f} s")
+        self._say(f"Last run: {where}{len(record.states)} steps, {n} trade{'s' * (n != 1)}, {took:.1f} s")
         self.baseline = self.workspace.runs.baseline_for(record)
         if self.baseline is None:
             bjob = self.workspace.runs.prepare_baseline(record)

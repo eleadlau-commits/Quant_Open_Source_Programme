@@ -246,7 +246,7 @@ def test_run_settings_show_where_each_value_comes_from_and_override_it(run_tab, 
     rv = tab.run_view
     use_dataset(ws)
     card = rv.settings_card
-    assert rv.market_line.text().startswith("Nasdaq, regular hours (09:30–16:00), decides")
+    assert rv.market_line.text().startswith("Next run: Nasdaq, regular hours (09:30–16:00), decides")
     assert card.sources["capital"].text() == "App default"
     assert card.sources["decide_at"].text() in ("Nasdaq default", "This strategy")
     assert card.sources["costs.equity.slippage_bps"].text() == "Nasdaq default"
@@ -269,4 +269,4 @@ def test_run_settings_show_where_each_value_comes_from_and_override_it(run_tab, 
     assert card.sources["costs.equity.slippage_bps"].text() == "Nasdaq default"
     # the status line says which market and hours the run used
     tab.run()
-    assert rv.status.text().startswith("Nasdaq, regular hours")
+    assert rv.status.text().startswith("Last run: Nasdaq, regular hours")
