@@ -19,3 +19,8 @@ def plugins_folder() -> Path:
 
 def skins_folder() -> Path:
     return app_folder() / "skins"
+
+
+def library_folder() -> Path:
+    """The module library on disk: one sub-folder per library folder, one .py per module."""
+    return app_folder() / "library"
