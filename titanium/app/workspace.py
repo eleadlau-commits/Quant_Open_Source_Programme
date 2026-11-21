@@ -57,6 +57,7 @@ class Workspace:
         self.backtests = BacktestService(self.registry, self.runs, self.strategies)
         self.strategies.added.connect(self._strategy_changed)
         self.strategies.changed.connect(self._strategy_changed)
+        self.strategies.removed.connect(lambda sid: self.datasets.sync_strategy(sid, []))  # closed: frees its data
         self.focused_strategy: str | None = None  # the strategy whose tab is in front
         self.strategy_focused = Event()  # (id or None,)
 

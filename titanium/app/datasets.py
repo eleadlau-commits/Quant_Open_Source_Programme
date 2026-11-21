@@ -52,10 +52,15 @@ class DatasetService(Collection[DatasetInfo]):
         self._root = Path(root) if root is not None else None
         self._store: BarStore | None = None
         self._open: dict[str, MarketData] = {}
+        self.leftovers: list[str] = []  # folders of datasets that were never finished, deleted at start
         self.usage_changed = Event()  # (dataset_id,)
         if self._root is not None:
             for info in self.store.catalogue():
+                # "used by" means strategies open now; none are open yet (older versions kept
+                # the uses of closed strategies, which left datasets that could never be removed)
+                info.used_by = []
                 self._items[info.id] = info
+            self.leftovers = self.store.sweep({i for i in self._items})
 
     # ---- where datasets live ------------------------------------------------------
     @property
@@ -200,9 +205,12 @@ class DatasetService(Collection[DatasetInfo]):
         if needed and not force:
             raise DatasetInUse(f"{info.name} is still used by {', '.join(needed)}")
         self._open.pop(id, None)
-        self.store.delete(id)
         super().remove(id)
-        self._save()
+        self._save()  # gone from the list first, so a file that can't be deleted never keeps it
+        try:
+            self.store.delete(id)
+        except OSError:
+            pass  # a file still open somewhere; the next start deletes what is left
 
     # ---- who uses what ------------------------------------------------------------------------
     def use(self, dataset_id: str, strategy_id: str) -> None:

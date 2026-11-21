@@ -284,3 +284,47 @@ def test_sample_datasets_are_marked_saved_and_removed_together(tmp_path):
     assert remove_samples(ws.datasets) == [infos[1].id]  # one a strategy uses stays
     ws.datasets.release(infos[0].id, "S1")
     assert remove_samples(ws.datasets) == [infos[0].id] and not len(ws.datasets)
+
+
+def test_closed_strategies_free_their_datasets_and_old_uses_are_forgotten(tmp_path):
+    from titanium.app.workspace import Workspace
+    from titanium.core.strategy import StrategyGraph
+
+    ws = Workspace(data_root=tmp_path)
+    info = ws.datasets.add("synthetic_stocks", {"n_symbols": 2, "n_days": 5})
+    ws.strategies.put("S1", StrategyGraph("S1", "Gap fade", settings={"datasets": [info.id]}))
+    assert ws.datasets.used_by(info.id) == ["S1"]
+    # the next start has no strategies open, so nothing holds the dataset (older versions kept "S1")
+    assert Workspace(data_root=tmp_path).datasets.used_by(info.id) == []
+    ws.strategies.remove("S1")  # the tab closed
+    assert ws.datasets.used_by(info.id) == []
+    ws.datasets.remove(info.id)
+    assert not len(Workspace(data_root=tmp_path).datasets)
+
+
+def test_half_made_datasets_are_swept_and_locked_files_never_keep_one(tmp_path, monkeypatch):
+    from titanium.app.workspace import Workspace
+    from titanium.core.bars import BarStore
+
+    ws = Workspace(data_root=tmp_path)
+    info = ws.datasets.add("synthetic_stocks", {"n_symbols": 2, "n_days": 5})
+    # a dataset that failed half way: files on disk, not in the catalogue
+    broken = tmp_path / "synthetic-stocks-dead01" / "minute"
+    broken.mkdir(parents=True)
+    (broken / "x.parquet").write_bytes(b"half")
+    (tmp_path / "my notes").mkdir()  # not a dataset folder: left alone
+    again = Workspace(data_root=tmp_path)
+    assert again.datasets.leftovers == ["synthetic-stocks-dead01"]
+    assert not (tmp_path / "synthetic-stocks-dead01").exists() and (tmp_path / "my notes").exists()
+    assert info.id in again.datasets
+    # a file that can't be deleted (open in another program) doesn't keep the dataset listed
+
+    def locked(self, dataset_id):
+        raise PermissionError("the file is open in another program")
+
+    monkeypatch.setattr(BarStore, "delete", locked)
+    again.datasets.remove(info.id)
+    assert info.id not in again.datasets
+    monkeypatch.undo()
+    third = Workspace(data_root=tmp_path)
+    assert not len(third.datasets) and third.datasets.leftovers  # and the next start deletes its files
