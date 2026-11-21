@@ -35,6 +35,12 @@ def _knobs_text(knobs: dict) -> str:
         or "the knobs as run"
 
 
+def _best(variants, ppy, end):
+    """The variant with the best Sharpe on the steps before ``end``; on a tie (often: nothing traded yet)
+    the run as written, then the first listed."""
+    return max(variants, key=lambda v: (round(sharpe(step_returns(v.record, end=end), ppy), 9), v.is_run))
+
+
 # ---------------------------------------------------------------------------------------------
 class OutOfSample:
     order = 10
@@ -55,7 +61,7 @@ class OutOfSample:
         if cut is None or len(step_returns(run, end=cut)) < MIN_STEPS or len(step_returns(run, start=cut)) < MIN_STEPS:
             return _not_enough(name, f"at least {MIN_STEPS} steps on each side of the split")
         variants = ctx.variants(spread)
-        best = max(variants, key=lambda v: sharpe(step_returns(v.record, end=cut), ppy))
+        best = _best(variants, ppy, end=cut)
         is_sharpe = sharpe(step_returns(best.record, end=cut), ppy)
         oos = step_returns(best.record, start=cut)
         oos_sharpe, oos_total = sharpe(oos, ppy), total_growth(oos)
@@ -103,7 +109,7 @@ class WalkForward:
         stitched, wins, picks = [], 0, []
         for i in range(1, folds + 1):
             a, b = edges[i], edges[i + 1]
-            best = max(variants, key=lambda v: sharpe(step_returns(v.record, end=a), ppy))
+            best = _best(variants, ppy, end=a)
             part = step_returns(best.record, start=a, end=b)
             stitched += part
             wins += total_growth(part) > 0

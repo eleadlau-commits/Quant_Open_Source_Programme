@@ -250,6 +250,25 @@ class {cls}(Source):
 def setup(plugin):
     plugin.add(Library.DATA_SOURCES, {cls}.name, {cls}(), doc={cls}.doc)
 ''',
+    "backtests": '''from titanium.sdk import BacktestInfo, Library, Param, Verdict, sharpe, step_returns, steps_per_year
+
+
+class {cls}:
+    order = 100
+    info = BacktestInfo("{name}", "{title}", "One or two sentences: what it checks.",
+                        [Param("threshold", "float", 0.0, "Threshold")], "reads the run")
+
+    def evaluate(self, ctx, threshold=0.0):
+        """Read ctx.run; ctx.rerun(settings=..., knobs=...) runs the same engine again. A pass means only
+        that the result survived this test."""
+        s = sharpe(step_returns(ctx.run), steps_per_year(ctx.run))
+        return Verdict(self.info.name, s > threshold, f"Sharpe {{s:.2f}}", "Why this matters, in plain words.",
+                       {{"figures": [("Sharpe", f"{{s:.2f}}")]}})
+
+
+def setup(plugin):
+    plugin.add(Library.BACKTESTS, {cls}.info.id, {cls}(), doc={cls}.info.doc)
+''',
     "generators": '''from titanium.sdk import Library, Param
 
 

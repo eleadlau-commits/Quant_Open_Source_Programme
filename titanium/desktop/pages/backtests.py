@@ -298,8 +298,10 @@ class BacktestsView(PageView):
         self.run_all.setEnabled(has_run or busy)
         self.run_all.setText("Stop" if busy else "Run all")
         self.library_btn.setEnabled(True)
-        if not busy:
-            self.status.setText("" if has_run else "Run a strategy on the Strategies page, then test it here.")
+        if not has_run:
+            self.status.setText("Run a strategy on the Strategies page, then test it here.")
+        elif not busy and self.status.text().startswith("Run a strategy"):
+            self.status.setText("")
         self._show_test(self.table.selected_key() or (keys[0] if keys else None))
         self._fill_results(results, tests, used)
         self._stale(rec)
@@ -481,7 +483,7 @@ class BacktestsView(PageView):
             self.status.setText(f"{text} · {int(fraction * 100)}%")
 
     def _idle(self) -> None:
-        self.status.setText("Done")
+        self.status.setText("Done. A pass means the result survived that test.")
         self.refresh()
 
     # ---- the library ----------------------------------------------------------------

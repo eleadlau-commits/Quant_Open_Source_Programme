@@ -109,6 +109,7 @@ def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
             shoot_patch_bay(app, Path(tmp), out, mode)
             if sample is not None:
                 shoot_run(app, Path(tmp), sample, out, mode)
+                shoot_compare_backtests(app, Path(tmp), sample, out, mode)
             if sample is not None:
                 ws = Workspace(data_root=sample)
                 ws.strategies.put("gap-fade", StrategyGraph("gap-fade", "Gap fade"))
@@ -127,6 +128,52 @@ def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
         settle(app)
         g.widget().grab().save(str(out / f"gallery-{mode}.png"))
         g.close()
+
+
+_TESTED: dict = {}
+
+
+def tested_workspace(sample: Path) -> Workspace:
+    """Two strategies run on synthetic data, with the default strategy and a set of tests run on the
+    first. Made once and shared by every skin and mode (the work doesn't depend on the look)."""
+    if "ws" in _TESTED:
+        return _TESTED["ws"]
+    from titanium.core.module_library import momentum_rotation
+
+    ws = Workspace(data_root=sample)
+    info = next(i for i in ws.datasets.infos("core") if i.name.startswith("Synthetic stocks (10"))
+    a = momentum_rotation(id="S1")
+    a.settings["datasets"] = [info.id]
+    b = momentum_rotation(id="S2", name="Fast momentum")
+    b.settings["datasets"] = [info.id]
+    b.knob_values = {"m1.days": 10, "m3.top": 3}
+    ws.strategies.put("S1", a)
+    ws.strategies.put("S2", b)
+    ws.runs.run("S2")
+    ra = ws.runs.run("S1")
+    ws.runs.commit(ws.runs.prepare_baseline(ra).execute())
+    for tid, params in (("out_of_sample", {}), ("bootstrap", {}), ("deflated_sharpe", {}), ("cost_stress", {}),
+                        ("random_baseline", {"n": 8}), ("benchmark", {}), ("parameter_stability", {})):
+        ws.backtests.run(ra.id, tid, params)
+    _TESTED["ws"] = ws
+    return ws
+
+
+def shoot_compare_backtests(app, tmp: Path, sample: Path, out: Path, mode: str) -> None:
+    ws = tested_workspace(sample)
+    ctx = AppContext(QSettings(str(tmp / "s4.ini"), QSettings.IniFormat), ws)
+    win = build_window(ctx)
+    win.resize(1440, 900)
+    win.show()
+    win.show_page("compare")
+    settle(app)
+    win.grab().save(str(out / f"compare-runs-{mode}.png"))
+    win.show_page("backtests")
+    view = win.views["backtests"]
+    view.select_strategy("S1")
+    settle(app)
+    win.grab().save(str(out / f"backtests-results-{mode}.png"))
+    win.close()
 
 
 def shoot_patch_bay(app, tmp: Path, out: Path, mode: str) -> None:

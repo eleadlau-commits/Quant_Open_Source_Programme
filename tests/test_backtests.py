@@ -109,8 +109,6 @@ def test_random_picks_keep_count_weights_and_holding():
     kept = set(out[1].targets) & set(out[2].targets)
     assert len(kept) == 1  # A kept its stand-in, B's went with B
     assert out[3].targets == {}
-    rp2 = RandomPicks(_Inner(copy.deepcopy(script)), seed=2, settings={})
-    assert [rp2.decide(_View(names, None), p).targets for _ in script] != [d.targets for d in out] or True
 
 
 def test_random_picks_flip_a_coin_with_one_instrument():
@@ -248,7 +246,7 @@ def test_backtests_page_runs_tests_and_groups_verdicts(page_ctx, ws):
     assert shown == {k: r.outcome for k, r in ws.backtests.results(ws.rec.id).items() if k in shown}
     counts = {k: sum(1 for o in shown.values() if o == k) for k in ("pass", "fail", "na")}
     assert {k: v.tiles[k].value.text() for k in counts} == {k: str(n) for k, n in counts.items()}
-    assert v.status.text() == "Done" and not v.queue.running
+    assert v.status.text().startswith("Done") and not v.queue.running
     # folding is remembered by test
     v.cards["bootstrap"].set_folded(True, emit=True)
     v.refresh()
