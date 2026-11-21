@@ -275,6 +275,15 @@ def _jsonable(params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _make_writable_and_retry(func, path, _exc) -> None:
+    """``shutil.rmtree`` helper: Windows won't delete read-only files, so clear the flag and try again."""
+    import os
+    import stat
+
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 def _file_key(name: str) -> str:
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in name)
 
@@ -377,7 +386,28 @@ class BarStore:
     def delete(self, dataset_id: str) -> None:
         folder = self.folder(dataset_id)
         if folder.exists():
-            shutil.rmtree(folder)
+            import sys
+
+            how = "onexc" if sys.version_info >= (3, 12) else "onerror"
+            shutil.rmtree(folder, **{how: _make_writable_and_retry})
+
+    def sweep(self, keep: set[str]) -> list[str]:
+        """Delete dataset folders the catalogue doesn't list: datasets that failed half way
+        through being made, or whose files couldn't be deleted when removed. Only folders
+        that look like datasets are touched. Returns the folder names deleted."""
+        if not self.root.exists():
+            return []
+        keep_names = {_file_key(k) for k in keep}
+        gone = []
+        for folder in self.root.iterdir():
+            if not folder.is_dir() or folder.name in keep_names:
+                continue
+            if not any((folder / part).exists() for part in ("meta.json", "minute", "daily", "series")):
+                continue
+            shutil.rmtree(folder, ignore_errors=True)
+            if not folder.exists():
+                gone.append(folder.name)
+        return gone
 
     def size(self, dataset_id: str) -> int:
         folder = self.folder(dataset_id)

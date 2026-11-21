@@ -280,8 +280,16 @@ class DataView(PageView):
                 return False
         try:
             self.service.remove(dataset_id)
-        except DatasetInUse as exc:
-            self.details.set_error(f"Can't remove it yet: {exc}.")
+        except DatasetInUse:
+            users = ", ".join(self.strategy_name(s) for s in info.used_by)
+            made = [self.service.get(d).name for d in self.service.dependents(dataset_id) if d in self.service]
+            why = "; ".join(x for x in (f"open strategies use it ({users})" if users else "",
+                                        f"generated data is made from it ({', '.join(made)})" if made else "") if x)
+            self.details.set_error(f"Can't remove it yet: {why}. Pick another dataset for those strategies, "
+                                   "close them, or remove the generated data first.")
+            return False
+        except Exception as exc:  # noqa: BLE001 - say what went wrong rather than do nothing
+            self.details.set_error(f"Couldn't remove it: {exc}")
             return False
         return True
 
