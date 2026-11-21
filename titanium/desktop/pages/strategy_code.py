@@ -114,6 +114,21 @@ class CodeView(QWidget):
         self.editor.viewport().update()
         self._say(self._summary())
 
+    def show_module(self, module_id: str) -> bool:
+        """Put the cursor on a module's function and scroll it into view."""
+        doc = self.editor.document()
+        cur = doc.find(f'@module(id="{module_id}"')
+        if cur.isNull():
+            return False
+        block = cur.block().next()
+        while block.isValid() and not block.text().lstrip().startswith(("def ", "async def ")):
+            block = block.next()
+        cur.setPosition((block if block.isValid() else cur.block()).position())
+        self.editor.setTextCursor(cur)
+        self.editor.centerCursor()
+        self.editor.setFocus()
+        return True
+
     # ---- actions
     def make_knob(self) -> str | None:
         line, col = self.editor.cursor_line_col()
@@ -150,4 +165,4 @@ class CodeView(QWidget):
         new = update_from_code(self.graph, generate(self.graph))  # a copy to change
         mod = add_to_graph(new, self.workspace.registry, entry_name)
         self.workspace.strategies.put(new.id, new)  # _on_changed shows it in the editor
-        self._say(f"Added “{mod.name}” as {mod.id}. Link its inputs in @module(links=...).")
+        self._say(f"Added “{mod.name}” as {mod.id}. Link it on the patch bay, or in @module(links=...).")

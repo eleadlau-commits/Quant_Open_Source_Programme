@@ -303,21 +303,26 @@ class RunButton(QPushButton):
 
 class Canvas(QFrame):
     """A working surface for things laid out in space (the patch bay, charts).
-    Draws the skin's backdrop: plain, a dot grid or ruled lines (``effects.canvas``)."""
+    Draws the skin's backdrop: plain, a dot grid or ruled lines (``effects.canvas``).
+
+    ``backdrop=False`` leaves the pattern to the content (the patch bay's node canvas draws
+    it itself, so it pans and zooms with the modules); the body then has no margins."""
 
     STEP = 16
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backdrop: bool = True):
         super().__init__(parent)
         self.setProperty("canvas", "true")
+        self.backdrop = backdrop
         self.body = QVBoxLayout(self)
-        self.body.setContentsMargins(S["lg"], S["lg"], S["lg"], S["lg"])
+        m = S["lg"] if backdrop else 1
+        self.body.setContentsMargins(m, m, m, m)
         theme.watch(self, lambda w: w.update())
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
         kind = theme.effects().canvas
-        if kind == "none":
+        if kind == "none" or not self.backdrop:
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
@@ -705,3 +710,4 @@ class ItemRow(QFrame):
 
 # Code and knobs live in their own file; they are part of the kit all the same.
 from .code_editor import CodeEditor, KnobControl  # noqa: E402,F401
+from .node_canvas import CableEnds, KnobSpec, NodeCanvasScene, NodeCanvasView, NodeSpec  # noqa: E402,F401

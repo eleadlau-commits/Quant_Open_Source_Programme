@@ -81,6 +81,7 @@ def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
             settle(app)
             win.grab().save(str(out / f"strategy-code-{mode}.png"))
             win.close()
+            shoot_patch_bay(app, Path(tmp), out, mode)
             if sample is not None:
                 ws = Workspace(data_root=sample)
                 ws.strategies.put("gap-fade", StrategyGraph("gap-fade", "Gap fade"))
@@ -99,6 +100,30 @@ def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
         settle(app)
         g.widget().grab().save(str(out / f"gallery-{mode}.png"))
         g.close()
+
+
+def shoot_patch_bay(app, tmp: Path, out: Path, mode: str) -> None:
+    """The patch bay with the example strategy, a module selected, and a folder of your own in the library."""
+    from titanium.core.module_library import STARTER, momentum_rotation
+
+    ws = Workspace(library_folder=tmp / "library")
+    ws.modules.copy_to(f"{STARTER}/Momentum", "My signals")
+    ctx = AppContext(QSettings(str(tmp / "s3.ini"), QSettings.IniFormat), ws)
+    win = build_window(ctx)
+    win.resize(1440, 900)
+    win.show()
+    win.show_page("strategies")
+    view = win.views["strategies"]
+    g = momentum_rotation(id="S1")
+    view.open_graph(g, view=0)
+    bay = view.tabs.currentWidget().patch
+    bay.turn_knob("m3.top", 8)
+    settle(app)
+    bay.view.fit()
+    bay.scene.nodes["m2"].setSelected(True)
+    settle(app)
+    win.grab().save(str(out / f"patch-bay-{mode}.png"))
+    win.close()
 
 
 def shoot_settings(app, out: Path, mode: str, tmp: Path) -> None:

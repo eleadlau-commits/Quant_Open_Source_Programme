@@ -15,6 +15,7 @@ from typing import Callable
 from PySide6.QtWidgets import QWidget
 
 PAGE, DOCK = "page", "dock"
+MODULE_MIME = "application/x-titanium-module"  # a module library entry name, dragged onto the patch bay
 
 
 class View(QWidget):

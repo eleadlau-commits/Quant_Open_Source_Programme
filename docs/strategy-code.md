@@ -1,7 +1,8 @@
 # Strategies as code
 
 A strategy is a graph of modules (`titanium/core/strategy.py`). The graph is the source of
-truth: it is what a strategy file (`.json`) holds, what the patch bay will draw, and what the
+truth: it is what a strategy file (`.json`) holds, what the patch bay draws (see
+[patch-bay.md](patch-bay.md)), and what the
 Code view shows as one Python file.
 
 ```python
