@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from . import icons, theme
 from . import tokens as T
+from .chart import SUB, ChartMarker, ChartSeries, TimeChart
 from .components import (
     Canvas, Card, CodeEditor, DataTable, Details, EmptyState, KnobControl, Logo, ParamForm, RunButton, SearchField, Segmented, StatTile,
     badge, button, hbox, label,
@@ -59,6 +60,26 @@ class _Param:
 
 def section(title: str, note: str = "") -> Card:
     return Card(title, note)
+
+
+def sample_chart() -> TimeChart:
+    """A chart with made-up numbers (a strategy, the default strategy, two weights and some trades)."""
+    import math
+    from datetime import datetime, timedelta, timezone
+
+    t0 = datetime(2024, 1, 2, 20, 50, tzinfo=timezone.utc)
+    days = [t0 + timedelta(days=i) for i in range(0, 252) if (t0 + timedelta(days=i)).weekday() < 5]
+    strat = [(t, 1 + 0.0012 * i + 0.04 * math.sin(i / 9)) for i, t in enumerate(days)]
+    base = [(t, 1 + 0.0007 * i + 0.025 * math.sin(i / 13 + 1)) for i, t in enumerate(days)]
+    w1 = [(t, 50 + 40 * math.sin(i / 17)) for i, t in enumerate(days)]
+    w2 = [(t, 50 - 40 * math.sin(i / 17)) for i, t in enumerate(days)]
+    chart = TimeChart()
+    chart.set_data([ChartSeries("Momentum rotation", strat), ChartSeries("Default strategy", base, dashed=True),
+                    ChartSeries("AAPL", w1, panel=SUB, color=1), ChartSeries("MSFT", w2, panel=SUB, color=2)],
+                   [ChartMarker(days[i], 1 if n % 2 == 0 else -1, "trade") for n, i in enumerate(range(10, 160, 15))],
+                   fmt=lambda v: f"{v:.2f}", sub_fmt=lambda v: f"{v:.0f}%")
+    chart.setFixedHeight(300)
+    return chart
 
 
 def build() -> QWidget:
@@ -141,6 +162,12 @@ def build() -> QWidget:
     canvas.body.addWidget(label("Modules go here", "muted"), 0, Qt.AlignCenter)
     cv.body.addWidget(canvas)
     col.addWidget(cv)
+
+    # chart
+    ch = section("Chart", "TimeChart: a thin viewer of a run. Wheel zooms in time, drag pans, the crosshair reads every line; "
+                          "trade dots, a dashed default strategy and a panel below for local series.")
+    ch.body.addWidget(sample_chart())
+    col.addWidget(ch)
 
     # code and knobs
     cd = section("Code and knobs", "The strategy code editor (mono face, the skin's code colours) and knob controls.")

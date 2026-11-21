@@ -54,6 +54,31 @@ def sample_datasets(root: Path) -> None:
     ws.datasets.add("synthetic_futures", {"n_days": 40})
     ws.datasets.generate("realised_vol", stocks.id, {"window": 10})
     ws.datasets.use(stocks.id, "gap-fade")
+    ws.datasets.add("synthetic_stocks", {"n_symbols": 10, "n_days": 160, "seed": 4})  # for the Run view
+
+
+def shoot_run(app, tmp: Path, sample: Path, out: Path, mode: str) -> None:
+    """The Run view after a real run of the example strategy on synthetic data."""
+    from titanium.core.module_library import momentum_rotation
+
+    ws = Workspace(data_root=sample)
+    info = next(i for i in ws.datasets.infos("core") if i.name.startswith("Synthetic stocks (10"))
+    ctx = AppContext(QSettings(str(tmp / "s3.ini"), QSettings.IniFormat), ws)
+    win = build_window(ctx)
+    win.resize(1440, 900)
+    win.show()
+    win.show_page("strategies")
+    g = momentum_rotation(id="S1")
+    g.settings["datasets"] = [info.id]
+    view = win.views["strategies"]
+    view.open_graph(g)
+    tab = view.tabs.currentWidget()
+    tab.run_view.background = False
+    tab.run()
+    tab.run_view.local_pick.setCurrentIndex(tab.run_view.local_pick.findText("Weights"))
+    settle(app)
+    win.grab().save(str(out / f"strategy-run-{mode}.png"))
+    win.close()
 
 
 def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
@@ -81,6 +106,8 @@ def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
             settle(app)
             win.grab().save(str(out / f"strategy-code-{mode}.png"))
             win.close()
+            if sample is not None:
+                shoot_run(app, Path(tmp), sample, out, mode)
             if sample is not None:
                 ws = Workspace(data_root=sample)
                 ws.strategies.put("gap-fade", StrategyGraph("gap-fade", "Gap fade"))

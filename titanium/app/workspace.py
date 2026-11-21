@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core.measurements import register_measurements
 from ..core.module_library import register_starters
 from ..core.plugins import Registry
 from ..core.strategy import StrategyGraph
@@ -28,6 +29,7 @@ class Workspace:
             registry = Registry()
             register_starters(registry)
         self.registry = registry
+        register_measurements(registry)  # the built-in ones, unless already there
         self.datasets = DatasetService(self.registry, data_root)
         self.strategies: Collection[StrategyGraph] = Collection()
         self.runs = RunService(self.datasets, self.strategies)

@@ -4,7 +4,9 @@ from __future__ import annotations
 from PySide6.QtWidgets import QVBoxLayout
 
 from ..design import tokens as T
-from ..design.components import KnobControl, SearchField, button, hbox, label
+from ...core.baseline import DEFAULT_ID
+from ...core.markets import MARKETS
+from ..design.components import DataTable, KnobControl, SearchField, button, hbox, label
 from ..views import DOCK, View
 
 S = T.SPACE
@@ -21,9 +23,9 @@ class _DockPanel(View):
         self.lay.setContentsMargins(S["md"], S["md"], S["md"], S["md"])
         self.lay.setSpacing(S["sm"])
         self.build()
-        note = label(self.text, "caption", wrap=True)
-        self.lay.addWidget(note)
-        self.lay.addStretch()
+        if self.text:
+            self.lay.addWidget(label(self.text, "caption", wrap=True))
+            self.lay.addStretch()
 
     def build(self) -> None:
         pass
@@ -124,9 +126,60 @@ class KnobsView(_DockPanel):
 
 
 class TradeLogView(_DockPanel):
+    """The trades of the last run of the strategy in front, newest run first. Close the
+    dock to hide it; the Run view's Trade log button brings it back."""
+
     view_id = "trade_log"
     title = "Trade log"
     icon = "list"
     dock_area = "bottom"
     order = 130
-    text = "Every entry and exit of the last run. Hide it when you need the room."
+    text = ""
+    COLUMNS = ["Instrument", "Side", "Entry", "Entry price", "Exit", "Exit price", "Quantity", "Profit", "Costs", "Notes"]
+
+    def build(self) -> None:
+        self.heading = label("No run yet", "muted")
+        self.lay.addLayout(hbox(self.heading, None))
+        self.table = DataTable(self.COLUMNS, stretch=len(self.COLUMNS) - 1)
+        self.table.setMinimumHeight(120)
+        self.lay.addWidget(self.table, 1)
+        self.record = None
+        ws = self.ctx.workspace if self.ctx is not None else None
+        if ws is not None:
+            ws.strategy_focused.connect(lambda _id: self.refresh())
+            ws.runs.added.connect(lambda _id, _r: self.refresh())
+            ws.runs.changed.connect(lambda _id, _r: self.refresh())
+        self.refresh()
+
+    def last_run(self):
+        ws = self.ctx.workspace if self.ctx is not None else None
+        if ws is None or not ws.focused_strategy or ws.focused_strategy == DEFAULT_ID:
+            return None
+        recs = [r for r in ws.runs.records(ws.focused_strategy) if r.status != "failed"]
+        return recs[-1] if recs else None
+
+    def refresh(self) -> None:
+        rec = self.last_run()
+        if rec is self.record and rec is not None:
+            return
+        self.record = rec
+        if rec is None:
+            self.heading.setText("No run yet. Run the strategy to see its trades here.")
+            self.table.set_rows([], [])
+            return
+        m = MARKETS.get(rec.market)
+        local = (lambda t: t.astimezone(m.tz)) if m else (lambda t: t)
+        cur = m.currency if m else ""
+        rows, keys = [], []
+        for i, t in enumerate(rec.trades):
+            rows.append((t.instrument.split(":")[-1], "Long" if t.side > 0 else "Short",
+                         f"{local(t.entry_time):%Y-%m-%d %H:%M}", f"{t.entry_price:.4g}",
+                         f"{local(t.exit_time):%Y-%m-%d %H:%M}" if t.exit_time else "",
+                         f"{t.exit_price:.4g}" if t.exit_price is not None else "",
+                         f"{t.quantity:g}", f"{t.pnl:+,.2f}" if t.pnl is not None else "",
+                         f"{t.cost:,.2f}", ", ".join(t.flags + ([t.reason] if t.reason else []))))
+            keys.append(str(i))
+        self.table.set_rows(rows, keys)
+        n = len(rec.trades)
+        status = "" if rec.status == "done" else f" ({rec.status})"
+        self.heading.setText(f"{n} trade{'s' * (n != 1)} in the last run{status}, profits in {cur} after costs")

@@ -114,11 +114,16 @@ class StatTile(Card):
         self.body.addWidget(label(caption.upper(), "overline"))
         self.value = label(value, "stat")
         self.body.addWidget(self.value)
-        if note:
-            self.body.addWidget(label(note, "caption"))
+        self.note = label(note, "caption")
+        self.note.setVisible(bool(note))
+        self.body.addWidget(self.note)
 
     def set_value(self, text: str) -> None:
         self.value.setText(text)
+
+    def set_note(self, text: str) -> None:
+        self.note.setText(text)
+        self.note.setVisible(bool(text))
 
 
 class EmptyState(QFrame):

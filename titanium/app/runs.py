@@ -17,6 +17,7 @@ import threading
 import uuid
 from typing import Any, Callable
 
+from ..core.baseline import DEFAULT_ID, HoldEverything, baseline_settings
 from ..core.run import RunRecord
 from ..core.sim import RunFailed, SimEngine
 from ..core.strategy import StrategyGraph
@@ -116,6 +117,25 @@ class RunService(Collection[RunRecord]):
     def active(self) -> list[str]:
         with self._lock:
             return list(self._jobs)
+
+    # ---- the default strategy (the yardstick each run is measured against)
+    @staticmethod
+    def _baseline_key(dataset_id: str, version: str, settings: dict[str, Any]) -> str:
+        return repr((dataset_id, version, sorted((k, repr(v)) for k, v in settings.items())))
+
+    def baseline_for(self, record: RunRecord) -> RunRecord | None:
+        """The default strategy's finished run on the same terms as ``record``, if there is one yet."""
+        want = self._baseline_key(record.dataset_id, record.dataset_version, baseline_settings(record.settings))
+        for r in reversed(self.records(DEFAULT_ID)):
+            if r.status == "done" and self._baseline_key(r.dataset_id, r.dataset_version,
+                                                         baseline_settings(r.settings)) == want:
+                return r
+        return None
+
+    def prepare_baseline(self, record: RunRecord) -> RunJob:
+        """A run of the default strategy on the same dataset, dates, capital and costs as ``record``."""
+        cfg = baseline_settings(record.settings)
+        return self.prepare(HoldEverything(cfg), cfg, dataset_id=record.dataset_id)
 
     def records(self, strategy_id: str | None = None) -> list[RunRecord]:
         recs = [self.get(i) for i in self.ids()]

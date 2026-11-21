@@ -1,6 +1,6 @@
 """Strategies page: one tab per strategy, each with Patch bay, Code and Run views.
 
-The Code view is built (Phase 1C); the patch bay and Run views follow in Phase 2.
+The Code view is built (Phase 1C) and the Run view (Phase 2E); the patch bay follows in Phase 2D.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from ..design import icons, theme
 from ..design import tokens as T
 from ..design.components import Canvas, EmptyState, RunButton, Segmented, badge, button, hbox, label
 from ..views import View
+from .run_view import RunView
 from .strategy_code import CodeView
 
 S = T.SPACE
@@ -34,7 +35,7 @@ STRATEGY_VIEWS = (
 class StrategyTab(QWidget):
     """One strategy: a switch between its three views."""
 
-    def __init__(self, graph: StrategyGraph, workspace=None):
+    def __init__(self, graph: StrategyGraph, workspace=None, open_page=None):
         super().__init__()
         self.graph = graph
         self.workspace = workspace
@@ -55,13 +56,31 @@ class StrategyTab(QWidget):
                 self.code = CodeView(graph, workspace)
                 self.views.addWidget(self.code)
             else:
-                self.views.addWidget(EmptyState(icon, name, text))
+                self.run_view = RunView(graph, workspace, open_page)
+                self.views.addWidget(self.run_view)
         lay.addWidget(self.views, 1)
+        self.run_btn.clicked.connect(self.run)
+        self.run_view.running_changed.connect(self.run_btn.set_running)
+        for keys in ("Ctrl+Return", "Ctrl+Enter"):
+            sc = QShortcut(QKeySequence(keys), self)
+            sc.setContext(Qt.WidgetWithChildrenShortcut)
+            sc.activated.connect(self.run)
         self.switch.changed.connect(self.views.setCurrentIndex)
         self.code.graph_changed.connect(self._set_graph)
         if workspace is not None:
             workspace.strategies.changed.connect(self._on_changed)
         self._set_graph(graph)
+
+    def run(self) -> None:
+        """Run (or, while running, cancel). Reads the code back first so edits are included."""
+        if self.run_view.running:
+            self.run_view.cancel()
+            return
+        if not self.code.read_back():
+            self.switch.set_index(1)  # the code view shows what's wrong
+            return
+        self.switch.set_index(2)
+        self.run_view.run()
 
     def _on_changed(self, id: str, graph: StrategyGraph) -> None:
         if id == self.graph.id:
@@ -72,11 +91,13 @@ class StrategyTab(QWidget):
         if self.workspace is not None:
             self.workspace.strategies.changed.disconnect(self._on_changed)
             self.code.detach()
+            self.run_view.detach()
 
     def _set_graph(self, graph: StrategyGraph) -> None:
         self.graph = graph
         n = len(graph.modules)
         self.badge.setText(f"{n} module{'s' * (n != 1)}" if n else "Empty strategy")
+        self.run_view.set_graph(graph)
 
 
 class StrategiesView(View):
@@ -163,7 +184,7 @@ class StrategiesView(View):
         ws = self.ctx.workspace if self.ctx is not None else None
         if ws is not None:
             ws.strategies.put(graph.id, graph)
-        tab = StrategyTab(graph, ws)
+        tab = StrategyTab(graph, ws, self.ctx.open_page if self.ctx is not None else None)
         i = self.tabs.addTab(tab, f"{graph.id}  {graph.name}")
         self.tabs.tabBar().setTabButton(i, QTabBar.RightSide, self._close_button(tab))
         self.tabs.setCurrentIndex(i)
