@@ -1,0 +1,11 @@
+{
+  "id": "realised-volatility",
+  "name": "Realised volatility",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Generated data: daily volatility measured from each day's minute returns.",
+  "author": "Titanium",
+  "main": "plugin.py",
+  "provides": {"generators": ["realised_vol"]},
+  "requires": []
+}

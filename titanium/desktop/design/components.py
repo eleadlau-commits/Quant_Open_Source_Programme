@@ -5,10 +5,10 @@ work, so nothing here hard-codes a colour).
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPointF, QSize, Qt, QVariantAnimation, Signal
-from PySide6.QtGui import QPainter, QPen, QPixmap
+from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
+    QAbstractButton, QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
     QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QPushButton, QSizePolicy, QSpinBox,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -619,6 +619,88 @@ class Dialog(QDialog):
         self.status.setText(text if busy else "")
         if busy:
             self.set_error("")
+
+
+class Switch(QAbstractButton):
+    """On or off, for a setting that takes effect at once (a plugin, a feature).
+    Classic fills it with ``primary``; skins with edge buttons use ``ink``, never a blue fill."""
+
+    def __init__(self, on: bool = False, tip: str = "", parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setChecked(on)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        if tip:
+            self.setToolTip(tip)
+        theme.watch(self, lambda w: w.update())
+
+    def sizeHint(self) -> QSize:
+        return QSize(36, 20)
+
+    def paintEvent(self, _e) -> None:
+        p = theme.current()
+        on = self.isChecked()
+        fill = p.primary if theme.effects().primary == "fill" else p.ink
+        track = QColor(fill if on else p.border_strong)
+        if not self.isEnabled():
+            track.setAlphaF(0.4)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        r = self.rect().adjusted(1, 1, -1, -1)
+        h = min(r.height(), 20)
+        track_rect = QRectF(r.x(), r.y() + (r.height() - h) / 2, min(r.width(), 36), h)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(track)
+        painter.drawRoundedRect(track_rect, h / 2, h / 2)
+        d = h - 6
+        x = track_rect.right() - d - 3 if on else track_rect.left() + 3
+        painter.setBrush(QColor(p.on_primary if on and fill == p.primary else p.on_ink if on else p.surface_top))
+        painter.drawEllipse(QRectF(x, track_rect.top() + 3, d, d))
+        if self.hasFocus():
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor(p.primary), 1))
+            painter.drawRoundedRect(track_rect.adjusted(-1, -1, 1, 1), h / 2 + 1, h / 2 + 1)
+        painter.end()
+
+
+class ItemRow(QFrame):
+    """One item in a list inside a card: a title with a badge, a caption, a note under it
+    (e.g. why something is off) and controls on the right. Rows are split by dividers."""
+
+    def __init__(self, title: str, caption: str = "", parent=None):
+        super().__init__(parent)
+        self.setProperty("itemrow", "true")
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, S["sm"], 0, S["sm"])
+        outer.setSpacing(S["lg"])
+        text = QVBoxLayout()
+        text.setSpacing(S["xxs"])
+        self.title_row = hbox(label(title, "label"), spacing=S["sm"])
+        text.addLayout(self.title_row)
+        self.caption = label(caption, "caption", wrap=True)
+        self.caption.setVisible(bool(caption))
+        text.addWidget(self.caption)
+        self.note = label("", "caption", wrap=True)
+        self.note.hide()
+        text.addWidget(self.note)
+        outer.addLayout(text, 1)
+        self.controls = hbox(spacing=S["sm"])
+        outer.addLayout(self.controls)
+        self.title_row.addStretch()
+
+    def add_badge(self, widget: QWidget) -> None:
+        self.title_row.insertWidget(self.title_row.count() - 1, widget)
+
+    def add_control(self, widget: QWidget) -> None:
+        self.controls.addWidget(widget, 0, Qt.AlignVCenter)
+
+    def set_note(self, text: str, role: str = "caption") -> None:
+        self.note.setText(text)
+        self.note.setProperty("role", role)
+        self.note.style().unpolish(self.note)
+        self.note.style().polish(self.note)
+        self.note.setVisible(bool(text))
 
 
 # Code and knobs live in their own file; they are part of the kit all the same.

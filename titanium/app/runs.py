@@ -67,6 +67,9 @@ class RunService(Collection[RunRecord]):
         self._jobs: dict[str, RunJob] = {}
         self._lock = threading.Lock()
         self.started = Event()  # (run_id,)
+        # () -> settings every run starts from (Workspace sets it to its run defaults);
+        # the strategy's settings and then the run's go on top
+        self.defaults: Callable[[], dict[str, Any]] | None = None
 
     def _resolve(self, strategy: str | Any) -> Any:
         if isinstance(strategy, str):
@@ -86,7 +89,12 @@ class RunService(Collection[RunRecord]):
         """A run of ``strategy`` (an id in ``Workspace.strategies``, or a graph) ready to execute."""
         strat = self._resolve(strategy)
         ds = dataset_id or self.dataset_of(strat, settings)
-        job = RunJob(self.engine, strat, ds, dict(settings or {}), on_done=self._finished)
+        cfg = dict(settings or {})
+        if self.defaults is not None:
+            from .settings import merge
+
+            cfg = merge(self.defaults(), getattr(strat, "settings", None) or {}, cfg)
+        job = RunJob(self.engine, strat, ds, cfg, on_done=self._finished)
         with self._lock:
             self._jobs[job.id] = job
         self.started.emit(job.id)
