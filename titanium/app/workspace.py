@@ -9,13 +9,13 @@ from pathlib import Path
 
 from ..core.module_library import register_starters
 from ..core.plugins import Registry
-from ..core.run import RunRecord
 from ..core.strategy import StrategyGraph
 from .collection import Collection
 from .events import Event
 from .datasets import DatasetService
+from .runs import RunJob, RunService
 
-__all__ = ["Collection", "DatasetService", "Workspace"]
+__all__ = ["Collection", "DatasetService", "RunJob", "RunService", "Workspace"]
 
 
 class Workspace:
@@ -30,7 +30,7 @@ class Workspace:
         self.registry = registry
         self.datasets = DatasetService(self.registry, data_root)
         self.strategies: Collection[StrategyGraph] = Collection()
-        self.runs: Collection[RunRecord] = Collection()
+        self.runs = RunService(self.datasets, self.strategies)
         self.strategies.added.connect(self._strategy_changed)
         self.strategies.changed.connect(self._strategy_changed)
         self.focused_strategy: str | None = None  # the strategy whose tab is in front
