@@ -22,6 +22,8 @@ include = ["titanium*"]
 
 [tool.setuptools.package-data]
 "titanium.desktop" = ["assets/*.png", "assets/*.svg", "design/packs/*.toml"]
+"titanium.plugins" = ["builtin/*/*.json", "builtin/*/*.py", "builtin/*/*.md", "builtin/*/tests/*.py",
+                      "builtin/*/skins/*.toml"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "titanium/plugins/builtin"]

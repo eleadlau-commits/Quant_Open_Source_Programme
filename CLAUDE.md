@@ -47,6 +47,9 @@ Pages never import each other and never reach into the engine.
   re-run the same engine with changed settings.
 - Cash is real currency in the ledger (notional capital); results are shown normalised.
 - Plugins add entries to libraries via a manifest; removing one never breaks others.
+  The loader is `app/plugins.py` (`workspace.plugins`); built-ins live in
+  `titanium/plugins/builtin`; plugin code imports only `titanium.sdk`. See `docs/plugins.md`.
+- Run defaults (capital, costs, time frame) come from `workspace.run_defaults`; don't hard-code them.
 
 ## Working
 

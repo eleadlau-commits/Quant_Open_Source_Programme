@@ -1,0 +1,11 @@
+{
+  "id": "starter-modules",
+  "name": "Starter modules",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "The starter folder of the module library: momentum, moving-average trend, top N equal weight.",
+  "author": "Titanium",
+  "main": "plugin.py",
+  "provides": {"modules": ["starter/Momentum", "starter/Above moving average", "starter/Top N equal weight"]},
+  "requires": []
+}
