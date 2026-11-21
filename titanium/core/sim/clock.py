@@ -46,7 +46,9 @@ class DecisionClock:
     """Implements :class:`titanium.core.engine.Clock`."""
 
     def __init__(self, market: Market, first_day: date, last_day: date, settings: dict[str, Any] | None = None):
-        settings = settings or {}
+        settings = dict(settings or {})
+        self.settings = settings
+        self._span = (first_day, last_day)
         if market.calendar is None:
             raise ValueError(f"market {market.id!r} has no calendar")
         self.market = market
@@ -82,6 +84,13 @@ class DecisionClock:
         for d in self.days():
             for at in self.decide_at:
                 yield self._local(d, at).astimezone(UTC)
+
+    def decision_times(self, settings: dict[str, Any] | None = None) -> list[datetime]:
+        """Decision times with ``settings`` laid over this clock's own (what
+        ``GraphStrategy.decision_times(clock)`` calls with the graph's settings)."""
+        if not settings:
+            return list(self.times())
+        return list(DecisionClock(self.market, *self._span, {**self.settings, **settings}).times())
 
     def end_time(self) -> datetime:
         """Midnight (exchange time) after the last day: pending orders are worked until then."""

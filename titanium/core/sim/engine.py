@@ -37,7 +37,8 @@ from ..instruments import InstrumentKind
 from ..orders import Order, OrderType, Side
 from ..portfolio import PortfolioState
 from ..run import RunRecord
-from ..strategy import Decision, StrategyGraph
+from ..strategy import Decision, StrategyGraph, graph_to_dict
+from ..strategy_compile import compile_graph, to_decision
 from .broker import SimBroker
 from .clock import DecisionClock
 from .costs import CostModel
@@ -57,22 +58,11 @@ class RunFailed(RuntimeError):
         self.record = record
 
 
-def as_decision(result: Any) -> Decision | None:
-    if result is None or isinstance(result, Decision):
-        return result
-    if isinstance(result, dict):
-        return Decision(targets={str(k): float(v) for k, v in result.items()})
-    if isinstance(result, Order):
-        return Decision(orders=[result])
-    if isinstance(result, (list, tuple)) and all(isinstance(o, Order) for o in result):
-        return Decision(orders=list(result))
-    raise TypeError(f"a decision is target weights (a dict), orders, or a Decision, not {type(result).__name__}")
+as_decision = to_decision  # dict of weights, orders, a Decision or None
 
 
 def _compile(strategy: Any):
     if isinstance(strategy, StrategyGraph):
-        from ..strategy_compile import compile_graph  # the strategy model section
-
         return compile_graph(strategy)
     if not hasattr(strategy, "decide"):
         raise TypeError("a strategy is a StrategyGraph or an object with decide(view, portfolio)")
@@ -82,14 +72,7 @@ def _compile(strategy: Any):
 def _snapshot(strategy: Any) -> dict[str, Any]:
     graph = strategy if isinstance(strategy, StrategyGraph) else getattr(strategy, "graph", None)
     if isinstance(graph, StrategyGraph):
-        try:
-            from ..strategy import graph_to_dict
-
-            return graph_to_dict(graph)
-        except ImportError:
-            import dataclasses
-
-            return dataclasses.asdict(graph)
+        return graph_to_dict(graph)
     return {"name": getattr(strategy, "name", type(strategy).__name__)}
 
 

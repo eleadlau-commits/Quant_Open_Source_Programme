@@ -411,9 +411,44 @@ def test_run_on_a_worker_thread():
 
     ws = Workspace()
     info = ws.datasets.add("synthetic_stocks", {"n_symbols": 3, "n_days": 8, "seed": 2})
-    job = ws.runs.prepare(Fixed({}), dataset_id=info.id)
+    class Idle:
+        def decide(self, view, p):
+            return None
+
+    job = ws.runs.prepare(Idle(), dataset_id=info.id)
     box = {}
     th = threading.Thread(target=lambda: box.setdefault("r", job.execute()))
     th.start()
     th.join(60)
     assert box["r"].status == "done" and job.fraction == 1.0
+
+
+# ---- strategy graphs ------------------------------------------------------------------------
+def test_strategy_graph_runs_with_probes():
+    from titanium.app.workspace import Workspace
+    from titanium.core.module_library import momentum_rotation
+
+    ws = Workspace()
+    info = ws.datasets.add("synthetic_stocks", {"n_symbols": 8, "n_days": 80, "seed": 4})
+    g = momentum_rotation()
+    g.settings["datasets"] = [info.id]
+    ws.strategies.put(g.id, g)
+    rec = ws.runs.run(g.id, {"probes": [g.modules[0].id]})
+    assert rec.status == "done", rec.error
+    assert rec.strategy_snapshot["id"] == g.id and rec.dataset_id == info.id
+    assert rec.fills and rec.trades
+    name = g.modules[0].id
+    assert len(rec.probes[name]) == len(rec.states) - 1  # one per decision
+    assert isinstance(rec.probes[name][-1][1], dict)
+
+
+def test_clock_serves_graph_decision_times():
+    from titanium.core.strategy import StrategyGraph
+    from titanium.core.strategy_compile import GraphStrategy
+
+    clock = DecisionClock(NASDAQ, DAYS[0], DAYS[-1])
+    g = StrategyGraph("S", "s", settings={"decide_at": "10:00", "every": "week"})
+    g.modules = []
+    times = clock.decision_times(g.settings)
+    assert [t.astimezone(NY) for t in times] == [ny(DAYS[0], "10:00")]
+    assert len(clock.decision_times()) == 5
