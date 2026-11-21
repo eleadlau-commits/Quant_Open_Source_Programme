@@ -8,6 +8,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[web,dev,desktop]"
-      - run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0
-      - run: pytest -q
+      - run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libfontconfig1
+      - run: pip install -e ".[dev]"
+      - run: QT_QPA_PLATFORM=offscreen pytest -q
+      - run: QT_QPA_PLATFORM=offscreen python tools/screenshots.py screenshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/

@@ -1,517 +1,90 @@
-"""Smoke test for the desktop app (skipped where Qt isn't installed)."""
-import os
-import time
-
+"""The shell: pages, docks, moving views between them, themes, the gallery."""
 import pytest
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-QtWidgets = pytest.importorskip("PySide6.QtWidgets")
-QtCore = pytest.importorskip("PySide6.QtCore")
+from titanium.desktop.app import build_window
+from titanium.desktop.design import theme
+from titanium.desktop.views import DOCK, PAGE
 
 
-# The strategies are starters now: import them into the (temporary) Titanium folder first.
-from honestbt import starters as _starters  # noqa: E402
-_starters.import_strategies()
-_starters.import_modules()
+@pytest.fixture
+def win(qapp, ctx):
+    w = build_window(ctx)
+    w.show()
+    qapp.processEvents()
+    yield w
+    w.close()
 
 
-def test_starters_import_into_a_folder_without_overwriting(tmp_path):
-    from honestbt import starters
-    added = starters.import_strategies(tmp_path)
-    assert {"monday_gap_top5.json", "nq_orb_trend_filter.json", "momentum_rotation.py"} <= set(added)
-    (tmp_path / "monday_gap_top5.json").write_text("{}")  # your edits are kept
-    assert starters.import_strategies(tmp_path) == [] and (tmp_path / "monday_gap_top5.json").read_text() == "{}"
-    mods = starters.import_modules(tmp_path)
-    assert "momentum.py" in mods and starters.have_strategies(tmp_path)
-    from honestbt.desktop.snippets import load_code_modules
-    found = load_code_modules(starters.modules_dir(tmp_path))
-    assert found["momentum"][0] == "Data → Data" and found["top_n_equal_weight"][0] == "Data → Buy/Sell"
+def test_four_pages_and_settings_in_the_corner(win):
+    assert [b for b in win.nav_buttons] == ["data", "strategies", "compare", "backtests", "settings"]
+    assert win.corner_box.indexOf(win.nav_buttons["settings"]) >= 0
+    assert win.current == "data"
 
 
-def test_no_costs_toggle_removes_trading_costs():
-    import json
-    from honestbt.desktop.app import MainWindow
-    _app()
-    w = MainWindow()
-    cfg = json.loads(w.editor.toPlainText())
-    cfg["data"]["params"].update(n_symbols=15, n_days=50)
-    w.editor.setPlainText(json.dumps(cfg))
-    try:
-        assert not w.home.no_costs.isChecked()  # off by default: costs are paid
-        assert w._checked_config(w.tab).get("costs", {}).get("multiplier", 1) != 0
-        w.home.no_costs.setChecked(True)
-        assert w._checked_config(w.tab)["costs"]["multiplier"] == 0.0
-        w.run()
-        w.wait(60)
-        tr = w.tab.report["selected"]["trades"]
-        assert tr and all(abs(t["gross_return"] - t["net_return"]) < 1e-12 for t in tr)
-    finally:
-        w.home.no_costs.setChecked(False)
+def test_docks_show_only_on_their_page(win, qapp):
+    assert not win.docks["knobs"].isVisible()
+    win.show_page("strategies")
+    qapp.processEvents()
+    assert win.docks["knobs"].isVisible()
+    win.show_page("compare")
+    assert not win.docks["knobs"].isVisible()
 
 
-def _app():
-    return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+def test_a_view_moves_between_page_and_dock_and_is_remembered(win, ctx, qapp):
+    win.move_view("knobs", PAGE)
+    assert win.hosts["knobs"] == PAGE and "knobs" in win.nav_buttons and win.current == "knobs"
+    win.move_view("compare", DOCK)
+    assert "compare" in win.docks and "compare" not in win.nav_buttons
+    w2 = build_window(ctx)  # a new window restores the saved layout
+    assert w2.hosts["knobs"] == PAGE and w2.hosts["compare"] == DOCK
+    w2.close()
 
 
-def test_window_has_home_a_tab_per_strategy_and_runs_strategy_without_tests():
-    import json
-    from honestbt.desktop.app import MainWindow
-    _app()
-    w = MainWindow()
-    names = [w.pages.tabText(i) for i in range(w.pages.count())]
-    assert names[:2] == ["Home", "Data"] and names[2].startswith("S1") and names[3:] == ["Compare", "Backtests"]
-    assert w.pages.currentWidget() is w.home and w.tab.key == "S1"
-    cfg = json.loads(w.editor.toPlainText())
-    assert "sweep" not in cfg  # the app runs strategies exactly as written
-    cfg["data"]["params"].update(n_symbols=15, n_days=50)
-    w.editor.setPlainText(json.dumps(cfg))
-    w.run()
-    w.wait(60)
-    assert "Profit" in w.summary.text()
-    assert w.tab.report and not w.tab.results  # no test ran by itself
-    own = w.tab.chart.series  # the strategy page draws its own profit, trade marks and the default
-    assert own[0]["label"].startswith("S1") and len(own[0]["marks"]) and own[1]["label"].startswith("Default")
-    labels = [s["label"] for s in w.measurements.profit.chart.series]
-    assert labels[0].startswith("S1") and labels[1].startswith("Default")
-    assert w.measurements.profit.table.rowCount() == 2
-    assert "15" == w.data_page.table.item(0, 2).text()  # dataset measured once loaded
+def test_moving_the_current_page_to_a_dock_falls_back(win):
+    win.show_page("backtests")
+    win.move_view("backtests", DOCK)
+    assert win.current == "data"
 
 
-def test_backtests_run_only_when_asked_one_selected_or_all():
-    import json
-    from honestbt.desktop.app import MainWindow
-    app = _app()
-    w = MainWindow()
-    cfg = json.loads(w.editor.toPlainText())
-    cfg["data"]["params"].update(n_symbols=15, n_days=50)
-    cfg["evaluators"] = [{"plugin": "bootstrap"}, {"plugin": "benchmark"}]
-    w.editor.setPlainText(json.dumps(cfg))
-    bt = w.backtests
-    rows = {r.data(0, QtCore.Qt.UserRole): r for r in bt.rows()}
-    assert rows["bootstrap"].checkState(1) == QtCore.Qt.Checked
-    assert rows["cost_stress"].checkState(1) == QtCore.Qt.Unchecked
-    # one test (double-click): runs the strategy first, then just that test
-    bt.request(["cost_stress"])
-    w.wait(60)
-    assert w.tab.report and set(w.tab.results) == {"cost_stress"}
-    # a few selected
-    bt.list.clearSelection()
-    rows["bootstrap"].setSelected(True)
-    rows["benchmark"].setSelected(True)
-    bt.run_selected()
-    w.wait(60)
-    assert set(w.tab.results) == {"cost_stress", "bootstrap", "benchmark"}
-    # ticking a test adds it to the strategy; Run all runs every ticked test
-    rows["deflated_sharpe"].setCheckState(1, QtCore.Qt.Checked)
-    app.processEvents()
-    used = [e["plugin"] for e in json.loads(w.editor.toPlainText())["evaluators"]]
-    assert used == ["bootstrap", "benchmark", "deflated_sharpe"]
-    w.tab.results.clear()
-    bt.run_used()
-    w.wait(60)
-    assert set(w.tab.results) == {"bootstrap", "benchmark", "deflated_sharpe"}
-    shown = sum(len(bt.results.cards[g]) for g in ("pass", "fail", "na"))
-    assert shown == 3
+def test_new_strategy_opens_a_tab_with_three_views(win, ctx):
+    view = win.views["strategies"]
+    g = view.new_strategy()
+    assert g.id in ctx.workspace.strategies
+    tab = view.tabs.currentWidget()
+    assert tab.views.count() == 3
+    tab.switch.set_index(2)
+    assert tab.views.currentIndex() == 2
+    view.close_tab(0)
+    assert g.id not in ctx.workspace.strategies
 
 
-def test_strategy_tabs_compare_on_the_profit_page():
-    import json
-    from honestbt.desktop.app import MainWindow
-    _app()
-    w = MainWindow()
-    row = w.home.find("nq_orb_trend_filter")
-    assert row is not None
-    cfg = json.loads(open(row["key"]).read())
-    cfg["data"]["params"]["n_days"] = 80
-    s2 = w.add_strategy(cfg)
-    assert s2.key == "S2" and w.tab is s2
-    w.run()
-    w.wait(60)
-    assert w.trades_table.horizontalHeaderItem(7).text() == "R"
-    w.pages.setCurrentWidget(w.strategies[0])
-    c1 = json.loads(w.editor.toPlainText())
-    c1["data"]["params"].update(n_symbols=15, n_days=50)
-    w.editor.setPlainText(json.dumps(c1))
-    w.run()
-    w.wait(60)
-    prof = w.measurements.profit
-    labels = [s["label"] for s in prof.chart.series]
-    assert sum(l.startswith("Default") for l in labels) == 2  # one per dataset
-    assert any(l.startswith("S1") for l in labels) and any(l.startswith("S2") for l in labels)
-    prof.picker.item(1).setCheckState(QtCore.Qt.Unchecked)  # hide S2 (and its dataset's default)
-    assert [s["label"][:2] for s in prof.chart.series] == ["S1", "De"]
-    full = prof.chart.window()
-    prof.chart.zoom(0.5)
-    a, b = prof.chart.window()
-    assert b - a < full[1] - full[0]
-    w.close_strategy(w.pages.indexOf(s2))
-    assert [t.key for t in w.strategies] == ["S1"]
+def test_theme_switch_restyles_everything(win, qapp, ctx):
+    ctx.theme_changed.emit("dark")
+    assert theme.current().name == "dark"
+    ctx.theme_changed.emit("light")
+    assert theme.current().name == "light"
 
 
-def test_window_stats_measures_from_window_start():
-    import numpy as np
-    from honestbt.desktop.measurements import window_stats
-    t = np.array([0.0, 1, 2, 3, 4])
-    v = np.array([1.0, 2.0, 1.0, 1.5, 3.0])
-    assert window_stats(t, v, 0, 4) == (2.0, -0.5)
-    assert window_stats(t, v, 2, 4) == (2.0, 0.0)
+def test_gallery_builds(qapp):
+    from titanium.desktop.design.gallery import build
+
+    w = build()
+    w.resize(1200, 800)
+    w.show()
+    qapp.processEvents()
+    w.close()
 
 
-def test_default_strategy_holds_everything():
-    from honestbt import baseline
-    from honestbt.runner import load_data
-    data = load_data({"plugin": "synthetic", "params": {"n_symbols": 10, "n_days": 30, "seed": 3}})
-    eq = baseline.hold_everything(data)
-    assert len(eq) == len(data.trading_days) and eq.iloc[0] == 1.0 and (eq > 0).all()
-
-
-def test_plugins_window_switches_a_plugin_off_and_on():
-    from honestbt import plugins
-    from honestbt.desktop.app import MainWindow
-    from honestbt.desktop.plugins_dialog import PluginsDialog
-    from honestbt.registry import has
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    w = MainWindow()
-    assert w.home.find("monday-gap-exit-family (gap-families pack)") is not None
-    with plugins.isolated():
-        dlg = PluginsDialog(w)
-        dlg.changed.connect(w.plugins_changed)
-        row = next(i for i, s in enumerate(dlg.rows) if s.id == "bootstrap")
-        dlg.table.item(row, 0).setCheckState(QtCore.Qt.Unchecked)
-        app.processEvents()
-        assert not has("evaluator", "bootstrap")
-        assert any(s.id == "honest-tests" and s.state == "off" for s in dlg.rows)
-        assert w.home.find("monday-gap-exit-family (gap-families pack)") is None  # needs the suites
-        row = next(i for i, s in enumerate(dlg.rows) if s.id == "bootstrap")
-        dlg.table.item(row, 0).setCheckState(QtCore.Qt.Checked)
-        assert has("evaluator", "bootstrap")
-    plugins.set_enabled("bootstrap", True)
-
-
-def _wait(app, w, limit=60):
-    t0 = time.time()
-    while w._thread is not None and time.time() - t0 < limit:
-        app.processEvents()
-        time.sleep(0.02)
-    app.processEvents()
-
-
-def test_builder_adds_wires_and_removes_pieces():
-    from honestbt.desktop import builder
-    from honestbt.patchbay import validate
-    from honestbt.registry import load_plugins
-    load_plugins()
-    cfg = {"data": {"plugin": "synthetic"}, "features": {"atr14": {"plugin": "atr"}},
-           "strategy": {"plugin": "weekly_topn", "params": {}}, "evaluators": []}
-    cfg2, where = builder.add(cfg, "feature", "realized_vol")
-    assert where == "features.realized_vol" and "realized_vol" not in cfg["features"]  # original untouched
-    cfg2, where = builder.add(cfg2, "mapping", "linear")
-    assert cfg2["mappings"]["linear"]["input"] == "atr14"
-    cfg2 = builder.set_input(cfg2, "linear", "realized_vol")
-    feat_slots, num_slots = builder.strategy_slots(cfg2)
-    assert "strategy.params.rank_by" in feat_slots and "strategy.params.top_n" in num_slots
-    cfg2, _ = builder.add(cfg2, "signal", "atr_trailing")
-    assert "strategy.params.exit.params.k" in builder.strategy_slots(cfg2)[1]
-    cfg2 = builder.wire(cfg2, "strategy.params.exit.params.k", {"$map": "linear"})
-    cfg2, _ = builder.add(cfg2, "evaluator", "bootstrap")
-    assert cfg2["evaluators"][-1]["plugin"] == "bootstrap"
-    assert not validate(cfg2)
-    assert "linear" not in builder.remove(cfg2, "mapping", "linear")["mappings"]
-
-
-def test_new_config_starts_from_a_runnable_example():
+def test_no_hard_coded_colours_outside_the_design_system():
+    """UI code takes colours from tokens only (the gallery and tokens are the exceptions)."""
+    import re
     from pathlib import Path
-    from honestbt.desktop import builder
-    from honestbt.patchbay import validate
-    examples = sorted(Path("honestbt/plugins/starter/strategies").glob("*.json"))
-    cfg = builder.new_config("opening_range_breakout", examples)
-    assert cfg["strategy"]["plugin"] == "opening_range_breakout" and cfg["name"].startswith("My ")
-    assert not validate(cfg)
-    bare = builder.new_config("weekly_topn", [])
-    assert bare["strategy"]["params"]["top_n"] == 5 and not validate(bare)
 
-
-def test_hover_help_explains_words_in_the_settings():
-    from honestbt.desktop.help import explain
-    from honestbt.registry import load_plugins
-    load_plugins()
-    cfg = {"features": {"gap": {"plugin": "premarket_gap"}},
-           "mappings": {"k_map": {"plugin": "linear", "input": "gap"}},
-           "strategy": {"plugin": "weekly_topn", "params": {"top_n": 5}}}
-    assert explain('"gap"', cfg).startswith("Feature 'gap' = premarket_gap")
-    assert "Mapping" in explain("k_map", cfg)
-    assert "How many names" in explain("top_n", cfg)
-    assert "strategy family" in explain("sweep", cfg)
-    assert explain("bootstrap", cfg).startswith("Test module")
-    assert explain("honest-stocks", cfg).startswith("Test suite")
-    assert explain("zzz_nothing", cfg) is None
-
-
-def test_verdict_blocks_can_be_moved_and_remember_order(tmp_path):
-    from PySide6.QtCore import QSettings
-    from honestbt.desktop.verdicts import VerdictBoard
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    settings = QSettings(str(tmp_path / "t.ini"), QSettings.IniFormat)
-    vs = [{"name": n, "passed": p, "headline": "h", "explanation": "e"} for n, p in
-          (("A", True), ("B", False), ("C", None))]
-    board = VerdictBoard(settings)
-    board.set_verdicts(vs)
-    assert board.names() == ["A", "B", "C"]
-    board.move("C", "A")
-    assert board.names() == ["C", "A", "B"]
-    board.cards[1].set_folded(True, remember=True)
-    again = VerdictBoard(settings)
-    again.set_verdicts(vs + [{"name": "D", "passed": True, "headline": "", "explanation": ""}])
-    assert again.names() == ["C", "A", "B", "D"]
-    assert again.cards[1].folded and not again.cards[0].folded
-    again.reset()
-    assert again.names() == ["A", "B", "C", "D"] and not any(c.folded for c in again.cards)
-    app.processEvents()
-
-
-def test_patch_bay_and_catalogue_edit_the_settings():
-    import json
-    from honestbt.desktop.app import MainWindow
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    w = MainWindow()
-    w.resize(1400, 900)
-    w.show()
-    app.processEvents()
-    menu = w.graph.build_menu(None)
-    assert [a.text() for a in menu.actions() if a.menu()][:2] == ["Add feature", "Add mapping (cable)"]
-    feat = next(it for it in [w.catalogue.topLevelItem(i) for i in range(w.catalogue.topLevelItemCount())]
-                if it.text(0) == "Data → Data")
-    child = next(feat.child(i) for i in range(feat.childCount()) if feat.child(i).text(0) == "trailing_return")
-    w.catalogue_add(child)
-    cfg = json.loads(w.editor.toPlainText())
-    assert "trailing_return" in cfg["features"]
-    w.graph.repaint()
-    assert any(n == "trailing_return" for k, n, _ in w.graph.nodes)
-    w.show_help("x")
-    assert w.help_line.text() == "x"
-    w.show_help("")
-    assert "Hover" in w.help_line.text()
-
-
-def test_builder_connect_unplug_and_sweep():
-    from honestbt.desktop import builder
-    from honestbt.registry import load_plugins
-    load_plugins()
-    cfg = {"data": {"plugin": "synthetic"},
-           "features": {"gap": {"plugin": "premarket_gap"}, "vol": {"plugin": "realized_vol"}},
-           "mappings": {"a": {"plugin": "linear", "input": "vol"}, "b": {"plugin": "linear", "input": "a"}},
-           "strategy": {"plugin": "weekly_topn", "params": {"top_n": 5, "exit": {"plugin": "atr_trailing"}}}}
-    new, _ = builder.connect(cfg, ("m", "b"), "strategy.params.exit.params.k")
-    assert new["strategy"]["params"]["exit"]["params"]["k"] == {"$map": "b"}
-    new, _ = builder.connect(new, ("f", "gap"), "strategy.params.rank_by")
-    assert new["strategy"]["params"]["rank_by"] == "gap"
-    bad, why = builder.connect(new, ("m", "a"), "strategy.params.rank_by")
-    assert bad is None and "needs a feature" in why
-    loop, why = builder.connect(new, ("m", "b"), "mappings.a.input")
-    assert loop is None and "loop" in why
-    assert builder.unplug(new, "strategy.params.exit.params.k")["strategy"]["params"]["exit"]["params"]["k"] == 1.0
-    assert builder.unplug(new, "mappings.b.input")["mappings"]["b"]["input"] is None
-    swept, _ = builder.add_sweep(new, "strategy.params.top_n")
-    assert swept["sweep"]["strategy.params.top_n"] == [2, 5, 8]
-    laid = builder.set_positions(new, {"f:gap": [10.4, 20.6]})
-    assert laid[builder.LAYOUT]["f:gap"] == [10, 21]
-    assert "f:gap" not in builder.remove(laid, "feature", "gap")[builder.LAYOUT]
-
-
-def test_patch_bay_wires_by_dragging_and_moves_boxes():
-    import json
-    from PySide6.QtCore import QPoint
-    from PySide6.QtTest import QTest
-    from honestbt.desktop.app import MainWindow
-    from honestbt.patchbay import validate
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    w = MainWindow()
-    w.resize(1400, 900)
-    w.show()
-    app.processEvents()
-    g = w.graph
-    LB = QtCore.Qt.LeftButton
-    # drag from feature vol20's output onto the strategy's top_n row -> {"$feature": "vol20"}
-    src = g.boxes["f:vol20"].out_port.toPoint()
-    row = next(r for r in g.boxes["s"].rows if r.label == "min_price")
-    dst = row.rect.center().toPoint()
-    QTest.mousePress(g, LB, QtCore.Qt.NoModifier, src)
-    QTest.mouseMove(g, dst)
-    QTest.mouseRelease(g, LB, QtCore.Qt.NoModifier, dst)
-    cfg = json.loads(w.editor.toPlainText())
-    assert cfg["strategy"]["params"]["min_price"] == {"$feature": "vol20"}
-    assert not validate(cfg)
-    # pick the exit's smooth cable up and drop it in empty space -> unplugged, back to default
-    xrow = next(r for r in g.boxes["x"].rows if r.label == "smooth")
-    assert xrow.source == ("m", "smooth_from_vol")
-    port = QPoint(int(xrow.rect.left()), int(xrow.rect.center().y()))
-    QTest.mousePress(g, LB, QtCore.Qt.NoModifier, port)
-    QTest.mouseMove(g, QPoint(5, g.height() - 5))
-    QTest.mouseRelease(g, LB, QtCore.Qt.NoModifier, QPoint(5, g.height() - 5))
-    cfg = json.loads(w.editor.toPlainText())
-    assert cfg["strategy"]["params"]["exit"]["params"]["smooth"] == 10
-    # move a box: its position is saved in the settings
-    b = g.boxes["f:gap"].rect
-    start = QPoint(int(b.left() + 40), int(b.center().y()))
-    QTest.mousePress(g, LB, QtCore.Qt.NoModifier, start)
-    QTest.mouseMove(g, start + QPoint(30, 200))
-    QTest.mouseRelease(g, LB, QtCore.Qt.NoModifier, start + QPoint(30, 200))
-    cfg = json.loads(w.editor.toPlainText())
-    assert cfg["patchbay_layout"]["f:gap"] == [round(b.left() + 30), round(b.top() + 200)]
-    # Ctrl+Z in the editor undoes the last patch-bay edit
-    w.editor.undo()
-    assert "patchbay_layout" not in json.loads(w.editor.toPlainText())
-
-
-def test_app_icon_has_every_size():
-    from honestbt.desktop.app import app_icon
-    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    sizes = {s.width() for s in app_icon().availableSizes()}
-    assert {16, 24, 32, 48, 64, 128, 256} <= sizes
-
-
-def test_python_strategy_tab_knobs_and_code_modules():
-    import json
-    from honestbt import pystrategy as ps
-    from honestbt.desktop.app import MainWindow
-    from honestbt.desktop.python_tab import PythonTab
-    app = _app()
-    w = MainWindow()
-    row = w.home.find("momentum_rotation")
-    assert row is not None and row["kind"] == "Python"
-    w.home.open_requested.emit(row["key"])  # double-click on Home: a Python file opens in its own tab
-    tab = w.tab
-    assert isinstance(tab, PythonTab) and tab.key == "S2"
-    w.resize(1400, 900)
-    w.show()
-    app.processEvents()
-    tab.bay.repaint()
-    names = [b["name"] for _, b in tab.bay.boxes]
-    assert names[0] == "data" and "momentum" in names and "decide" in names and names[-1] == "engine"
-    w.run()
-    w.wait(60)
-    assert "Profit" in tab.summary.text()
-    before = tab.report["selected"]["equity"]["v"][-1]
-    # the Knobs dock shows the knobs of the strategy in front; letting go re-runs it
-    panel = w.knobs
-    assert w.knobs_dock.isVisible() and panel.current() is tab and set(panel.sliders) == {"days", "top", "min_price"}
-    panel.turn("days", 30)
-    w.wait(60)
-    assert tab.knob_values == {"days": 30}
-    assert tab.report["selected"]["equity"]["v"][-1] != before
-    assert 'knob("days", 10' in tab.source()  # code unchanged until written
-    panel.write.emit(tab)
-    assert 'knob("days", 30' in tab.source() and tab.knob_values == {}
-    # make a number a knob from the editor
-    src = tab.source()
-    line = next(n for n, l in enumerate(src.splitlines(), 1) if "5e6" in l)
-    col = src.splitlines()[line - 1].index("5e6") + 1
-    from PySide6.QtGui import QTextCursor
-    c = tab.editor.textCursor()
-    c.setPosition(tab.editor.document().findBlockByNumber(line - 1).position() + col)
-    tab.editor.setTextCursor(c)
-    tab.make_knob()
-    assert "k" + str(line) in {k["name"] for k in ps.knobs(tab.source())}
-    # a code module from the library goes above decide()
-    lib = next(w.catalogue.topLevelItem(i) for i in range(w.catalogue.topLevelItemCount())
-               if w.catalogue.topLevelItem(i).text(0) == "Code modules")
-    vol = next(lib.child(i) for i in range(lib.childCount()) if lib.child(i).text(0) == "volatility")
-    w.catalogue_add(vol)
-    assert tab.source().index("def volatility") < tab.source().index("def decide")
-    # ticking a test on the Backtests page writes it into SETTINGS
-    row = next(r for r in w.backtests.rows() if r.data(0, QtCore.Qt.UserRole) == "deflated_sharpe")
-    row.setCheckState(1, QtCore.Qt.Checked)
-    app.processEvents()
-    assert {"plugin": "deflated_sharpe"} in ps.settings(tab.source())["evaluators"]
-    w.backtests.request(["benchmark"])
-    w.wait(60)
-    assert tab.results["benchmark"]["headline"].startswith("Excess over the default strategy")
-
-
-def test_time_frame_and_complementary_data():
-    import json
-    from honestbt.desktop.app import MainWindow
-    app = _app()
-    w = MainWindow()
-    cfg = json.loads(w.editor.toPlainText())
-    cfg["data"]["params"].update(n_symbols=15, n_days=80)
-    w.editor.setPlainText(json.dumps(cfg))
-    try:
-        w.home.set_time_frame({"start": "2024-02-01", "end": "2024-03-15"})
-        w.run()
-        w.wait(60)
-        eq = w.tab.report["selected"]["equity"]["t"]
-        assert eq and eq[0] >= "2024-02-01" and eq[-1] <= "2024-03-16"
-        d = w.tab.report["default_equity"]["t"]
-        assert d[0][:10] >= "2024-02-01" and d[-1][:10] <= "2024-03-15"
-    finally:
-        w.home.set_time_frame(None)
-    # attach complementary data to the dataset of every strategy using it
-    w.data_page.table.selectRow(0)
-    w.add_complementary(json.loads(w.editor.toPlainText())["data"], {"plugin": "synthetic_events"})
-    assert json.loads(w.editor.toPlainText())["data"]["complementary"] == [{"plugin": "synthetic_events"}]
-    w.run()
-    w.wait(60)
-    assert "earnings_surprise" in w.data_page.table.item(0, 6).text()
-    app.processEvents()
-
-
-def test_home_page_docks_and_dark_mode():
-    from honestbt.desktop import theme
-    from honestbt.desktop.app import MainWindow
-    app = _app()
-    w = MainWindow()
-    w.resize(1400, 900)
-    w.show()
-    app.processEvents()
-    # Home lists your strategy files and the pack examples; nothing is shared on other pages
-    names = [r["name"] for r in w.home.rows]
-    assert any("momentum" in n.lower() for n in names) and any("pack)" in n for n in names)
-    assert not w.library_dock.isVisible() and not w.knobs_dock.isVisible()  # docks only on strategy pages
-    w.pages.setCurrentWidget(w.strategies[0])
-    app.processEvents()
-    assert w.library_dock.isVisible() and not w.knobs_dock.isVisible()  # patch bay: no knobs
-    lib = dict(w.library_rows())
-    assert lib["Backtests"].startswith("8") and "synthetic" in lib["Data sources"]
-    # opening a strategy that is already open switches to its tab instead of opening it twice
-    key = w.home.rows[0]["key"]
-    n = len(w.strategies)
-    w.open_key(key)
-    w.open_key(key)
-    assert len(w.strategies) == n
-    # dark mode: palette and editor colours follow
-    try:
-        assert theme.apply(app, "dark") and app.palette().color(app.palette().ColorRole.Window).lightness() < 80
-        w.apply_theme("dark")
-        assert not theme.apply(app, "light")
-    finally:
-        theme.apply(app, "light")
-
-
-def test_reset_to_empty_backs_up_and_starters_bring_it_back(tmp_path, monkeypatch):
-    import zipfile
-    from honestbt import plugins, starters
-    from honestbt.desktop import app as appmod
-    monkeypatch.setattr(appmod, "USER_DIR", tmp_path)
-    monkeypatch.setenv("HONESTBT_PLUGIN_DIR", str(tmp_path / "plugins"))
-    _app()
-    starters.import_strategies(tmp_path)
-    starters.import_modules(tmp_path)
-    w = appmod.MainWindow()
-    try:
-        backup = w.reset_to_empty(confirm=False)
-        assert zipfile.ZipFile(backup).namelist() and "monday_gap_top5.json" in zipfile.ZipFile(backup).namelist()
-        assert not list(tmp_path.glob("*.json")) and not starters.modules_dir(tmp_path).exists()
-        on = {s.id for s in plugins.statuses() if s.state == "on"}
-        assert on == {"synthetic-stocks"}
-        assert len(w.strategies) == 1 and w.tab.kind == "python"
-        w.run()  # a new strategy still runs on the empty app
-        w.wait(60)
-        assert w.tab.report
-        w.import_starters(True, True)
-        assert {s.id for s in plugins.statuses() if s.source == "builtin" and s.state != "on"} == set()
-        assert (tmp_path / "monday_gap_top5.json").exists()
-    finally:
-        starters.switch_on_builtins()
-        monkeypatch.delenv("HONESTBT_PLUGIN_DIR")
-        plugins.reload()
+    root = Path(__file__).resolve().parent.parent / "titanium" / "desktop"
+    offenders = []
+    for f in root.rglob("*.py"):
+        if f.parent.name == "design":
+            continue
+        if re.search(r"#[0-9a-fA-F]{6}\b|setStyleSheet\(", f.read_text()):
+            offenders.append(str(f.relative_to(root)))
+    assert offenders == []

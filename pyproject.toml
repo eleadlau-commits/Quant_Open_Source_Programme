@@ -3,33 +3,25 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "honestbt"
-version = "0.1.0"
-description = "Honest, pluggable backtests and pass/fail evaluation for retail strategy families"
+name = "titanium"
+version = "0.2.0.dev0"
+description = "A desktop workbench for building, running and honestly judging trading strategies"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = ["numpy>=1.26", "pandas>=2.1", "pyarrow>=14"]
+dependencies = ["numpy>=1.26", "pandas>=2.1", "pyarrow>=14", "PySide6-Essentials>=6.6"]
 
 [project.optional-dependencies]
-web = ["fastapi>=0.110", "uvicorn>=0.27"]
-desktop = ["PySide6-Essentials>=6.6"]
-dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110"]
+dev = ["pytest>=8"]
 
 [project.gui-scripts]
-titanium = "honestbt.desktop.app:main"
+titanium = "titanium.desktop.app:main"
 
 [tool.setuptools.packages.find]
-include = ["honestbt*"]
+include = ["titanium*"]
 
 [tool.setuptools.package-data]
-# plugin folders are read from disk, not imported as packages
-"honestbt.desktop" = ["assets/*.png"]
-"honestbt.plugins" = ["builtin/*/*.json", "builtin/*/*.py", "builtin/*/*.md", "builtin/*/suites/*.json",
-                      "builtin/*/presets/*.json", "builtin/*/tests/*.py",
-                      "starter/*/*.json", "starter/*/*.py", "starter/*/*.md", "starter/*/presets/*.json",
-                      "starter/*/tests/*.py"]
+"titanium.desktop" = ["assets/*.png", "assets/*.svg"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "honestbt/plugins/builtin"]
-addopts = "--import-mode=importlib"
+testpaths = ["tests"]

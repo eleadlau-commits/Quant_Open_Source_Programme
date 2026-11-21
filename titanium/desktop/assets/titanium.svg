@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <filter id="ink" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="7" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="4.5" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+  <!-- hand-drawn frame on a white tile -->
+  <rect x="18" y="18" width="220" height="220" rx="46" fill="#FFFFFF" stroke="#111418" stroke-width="5" filter="url(#ink)"/>
+  <g transform="translate(-6 0) translate(128 130) scale(1.1) translate(-128 -130)">
+    <!-- T with a foot towards the i -->
+    <path d="M58 62 H170 V96 H132 V190 Q132 195 137 195 H142 V198 H96 V96 H58 Z" fill="#111418"/>
+    <!-- dotless i, muted red, hand-inked, serifs towards the T -->
+    <g filter="url(#ink)" transform="translate(-15 0)">
+      <path d="M161 128 H200 V198 H161 V195 H165 Q170 195 170 190 V136 Q170 131 165 131 H161 Z" fill="#B4635E"/>
+      <path d="M180 136 L181 188" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+    </g>
+  </g>
+</svg>
