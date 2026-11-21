@@ -19,6 +19,7 @@ from ..design.components import (
     Card, DataTable, Details, Dialog, EmptyState, ParamForm, SearchField, Segmented, badge, button, hbox, label,
 )
 from ._base import PageView
+from ..views import PageStack
 
 S = T.SPACE
 
@@ -75,7 +76,7 @@ class DataView(PageView):
         self.search.textChanged.connect(lambda _t: self.refresh())
         self.column.addLayout(hbox(self.filter, None, self.search))
 
-        self.stack = QStackedWidget()
+        self.stack = PageStack()
         self.empty = EmptyState(
             "data", "No datasets yet",
             "A dataset records where its data comes from, what it holds, where it is stored, "
@@ -349,7 +350,7 @@ class AddDatasetDialog(Dialog):
             if not getattr(s, "available", True):
                 item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
             self.list.addItem(item)
-        self.forms = QStackedWidget()
+        self.forms = PageStack()
         self.form_for: dict[str, ParamForm] = {}
         self.docs: dict[str, str] = {}
         for s in self.sources:
@@ -416,7 +417,7 @@ class GenerateDialog(Dialog):
         self.body.addWidget(self.choice)
         self.doc = label("", "muted", wrap=True)
         self.body.addWidget(self.doc)
-        self.forms = QStackedWidget()
+        self.forms = PageStack()
         for g in self.gens:
             self.forms.addWidget(ParamForm(list(g.params) + [_NameParam()]))
         self.body.addWidget(self.forms)

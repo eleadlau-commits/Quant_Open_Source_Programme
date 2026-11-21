@@ -12,10 +12,29 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import QSize
+from PySide6.QtWidgets import QStackedWidget, QWidget
 
 PAGE, DOCK = "page", "dock"
 MODULE_MIME = "application/x-titanium-module"  # a module library entry name, dragged onto the patch bay
+
+
+class PageStack(QStackedWidget):
+    """A stack whose size needs are those of the page in front. A plain QStackedWidget
+    asks for room for its largest page even while that page is hidden, which made the
+    whole window wider than a small screen."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.currentChanged.connect(lambda _i: self.updateGeometry())
+
+    def sizeHint(self) -> QSize:
+        w = self.currentWidget()
+        return w.sizeHint() if w is not None else super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        w = self.currentWidget()
+        return w.minimumSizeHint() if w is not None else super().minimumSizeHint()
 
 
 class View(QWidget):

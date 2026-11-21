@@ -18,7 +18,7 @@ from .context import AppContext
 from .design import icons, theme
 from .design import tokens as T
 from .design.components import Logo, label, paint_nav_marker
-from .views import DOCK, PAGE, View, ViewRegistry
+from .views import DOCK, PAGE, PageStack, View, ViewRegistry
 
 S = T.SPACE
 _AREAS = {"left": Qt.LeftDockWidgetArea, "right": Qt.RightDockWidgetArea, "bottom": Qt.BottomDockWidgetArea}
@@ -103,7 +103,7 @@ class PageHeader(QWidget):
         col = QVBoxLayout()
         col.setSpacing(S["xxs"])
         self.title = label("", "heading")
-        self.subtitle = label("", "muted")
+        self.subtitle = label("", "muted", wrap=True)
         col.addWidget(self.title)
         col.addWidget(self.subtitle)
         lay.addLayout(col, 1)
@@ -125,11 +125,23 @@ class PageHeader(QWidget):
 
 
 class MainWindow(QMainWindow):
+    @staticmethod
+    def _first_size():
+        """1440 x 900, or most of the screen when the screen is smaller than that."""
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QGuiApplication
+
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return QSize(1440, 900)
+        room = screen.availableGeometry().size()
+        return QSize(min(1440, int(room.width() * 0.92)), min(900, int(room.height() * 0.9)))
+
     def __init__(self, registry: ViewRegistry, ctx: AppContext):
         super().__init__()
         self.registry, self.ctx = registry, ctx
         self.setWindowTitle("Titanium")
-        self.resize(1440, 900)
+        self.resize(self._first_size())
         self.views: dict[str, View] = {}
         self.hosts: dict[str, str] = {}
         self.docks: dict[str, ViewDock] = {}
@@ -163,7 +175,7 @@ class MainWindow(QMainWindow):
 
         # ---- centre: header over the page stack
         self.header = PageHeader()
-        self.stack = QStackedWidget()
+        self.stack = PageStack()
         centre = QWidget()
         cl = QVBoxLayout(centre)
         cl.setContentsMargins(0, 0, 0, 0)

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
@@ -99,13 +100,37 @@ def _report_self_test(problems: list[str]) -> int:
     return 0 if not problems else 1
 
 
+APP_ID = "QuantOpenSource.Titanium"  # Windows taskbar grouping; matches the installer's shortcuts
+ICON_DIR = Path(__file__).resolve().parent / "assets"
+
+
+def app_icon() -> QIcon:
+    """The logo at every size it was drawn for, so the title bar (16 px) and the taskbar
+    (24 to 48 px) get sharp pixels rather than a scaled-down 256 px image."""
+    icon = QIcon()
+    for f in sorted(ICON_DIR.glob("titanium-*.png")):
+        icon.addFile(str(f))
+    return icon
+
+
+def set_windows_app_id() -> None:
+    """Without this, Windows groups the window under python(w).exe and shows the Python
+    logo in the taskbar when the app runs from source or the use-my-Python install."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        except Exception:  # noqa: BLE001 - cosmetic only
+            pass
+
+
 def main(argv=None, on_shown=None) -> int:
     argv = list(sys.argv if argv is None else argv)
+    set_windows_app_id()  # before any window exists
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("Titanium")
-    from pathlib import Path
-
-    app.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "assets" / "titanium-256.png")))
+    app.setWindowIcon(app_icon())
     ctx = AppContext.default()
     load_skins(ctx)
     mode = "dark" if "--dark" in argv else "light" if "--light" in argv else ctx.settings.value("view/theme", "system")

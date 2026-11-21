@@ -19,7 +19,7 @@ from .chart import SUB, ChartMarker, ChartSeries, TimeChart
 from .components import (
     CableEnds, Canvas, Card, CodeEditor, DataTable, Details, EmptyState, ItemRow, KnobControl, KnobSpec, Logo,
     NodeCanvasScene, NodeCanvasView, NodeSpec, ParamForm, RunButton, SearchField, Segmented, StatTile, Switch,
-    VerdictCard, badge, button, divider, hbox, label,
+    VerdictCard, badge, button, divider, flow, hbox, label,
 )
 
 S = T.SPACE
@@ -133,6 +133,15 @@ def build() -> QWidget:
     seg = Segmented(["Patch bay", "Code", "Run"])
     b.body.addLayout(hbox(seg, None))
     col.addWidget(b)
+
+    fl = section("Wrapping rows", "flow(): a row that wraps when the window is narrow. What follows None sits on the "
+                                  "right while the row fits on one line. Toolbars and rows of tiles use it.")
+    fl.body.addLayout(flow(button("Add module", "ghost", "module"), button("Tidy", "ghost"), button("Undo", "ghost"),
+                           None, label("82%", "caption"), button("Fit", "ghost")))
+    fl.body.addLayout(flow(*[StatTile(c, v) for c, v in (("Profit", "+4.2%"), ("Sharpe", "0.81"),
+                                                          ("Max drawdown", "-6.1%"), ("Hit rate", "52%"))],
+                           spacing=S["md"], fill=True))
+    col.addWidget(fl)
 
     # inputs
     inp = section("Inputs")
