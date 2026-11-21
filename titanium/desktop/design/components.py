@@ -115,8 +115,8 @@ class StatTile(Card):
         self.value = label(value, "stat")
         self.body.addWidget(self.value)
         self.note = label(note, "caption")
+        self.body.addWidget(self.note)  # parent it before hiding, or it flashes up as a window
         self.note.setVisible(bool(note))
-        self.body.addWidget(self.note)
 
     def set_value(self, text: str) -> None:
         self.value.setText(text)

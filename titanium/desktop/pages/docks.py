@@ -30,8 +30,8 @@ class _DockPanel(View):
         self.lay.setSpacing(S["sm"])
         self.build()
         self.note = label(self.text, "caption", wrap=True)
-        self.note.setVisible(bool(self.text))
         self.lay.addWidget(self.note)
+        self.note.setVisible(bool(self.text))
         if self.text:
             self.lay.addStretch()
 
