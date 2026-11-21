@@ -156,7 +156,7 @@ class StrategiesView(View):
 
     def new_strategy(self) -> StrategyGraph:
         sid = self._next_id()
-        return self.open_graph(StrategyGraph(id=sid, name=f"Strategy {sid[1:]}"))
+        return self.open_graph(StrategyGraph(id=sid, name=f"Strategy {sid[1:]}", settings={"datasets": []}))
 
     def open_graph(self, graph: StrategyGraph, view: int = 0) -> StrategyGraph:
         """Open a strategy in a new tab (and the workspace), showing view ``view`` (0 patch bay, 1 code)."""

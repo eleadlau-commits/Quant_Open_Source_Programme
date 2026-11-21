@@ -5,19 +5,19 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import fields
+from dataclasses import dataclass, fields
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QGridLayout, QLabel, QScrollArea, QSlider, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QGridLayout, QLabel, QScrollArea, QSlider, QVBoxLayout, QWidget,
 )
 
 from . import icons, theme
 from . import tokens as T
 from .components import (
-    Canvas, Card, CodeEditor, EmptyState, KnobControl, Logo, RunButton, SearchField, Segmented, StatTile, badge, button, hbox, label,
+    Canvas, Card, CodeEditor, DataTable, Details, EmptyState, KnobControl, Logo, ParamForm, RunButton, SearchField, Segmented, StatTile,
+    badge, button, hbox, label,
 )
 
 S = T.SPACE
@@ -41,6 +41,20 @@ class Swatch(QWidget):
         p.drawText(0, 50, self.name)
         p.setPen(theme.qcolor(pal.text_faint))
         p.drawText(0, 62, self.color)
+
+
+@dataclass(frozen=True)
+class _Param:
+    """Stands in for a data source's setting (anything with these fields works in ParamForm)."""
+
+    name: str
+    type: str
+    default: object
+    label: str = ""
+    help: str = ""
+    choices: tuple = ()
+    minimum: float | None = None
+    maximum: float | None = None
 
 
 def section(title: str, note: str = "") -> Card:
@@ -156,23 +170,35 @@ def momentum(view):
     col.addWidget(cd)
 
     # table
-    tc = section("Table", "Lists of datasets, strategies, trades.")
-    tbl = QTableWidget(4, 5)
-    tbl.setHorizontalHeaderLabels(["Dataset", "Kind", "Instruments", "Range", "Used by"])
+    tc = section("Table", "DataTable: lists of datasets, strategies, trades. Whole rows select.")
+    tbl = DataTable(["Dataset", "Kind", "Instruments", "Range", "Used by"])
     rows = [("Nasdaq minute", "Core", "412", "2023-01-03 to 2025-10-31", "S1, S2"),
             ("Earnings dates", "Complementary", "412", "2023 to 2025", "S2"),
             ("Volatility 20d", "Generated", "412", "2023 to 2025", "S1"),
             ("Synthetic", "Core", "40", "2 years", "")]
-    for r, vals in enumerate(rows):
-        for k, v in enumerate(vals):
-            tbl.setItem(r, k, QTableWidgetItem(v))
-    tbl.verticalHeader().setVisible(False)
-    tbl.horizontalHeader().setStretchLastSection(True)
-    tbl.setShowGrid(False)
+    tbl.set_rows(rows, [r[0] for r in rows])
+    tbl.select("Earnings dates")
     tbl.setFixedHeight(190)
-    tbl.resizeColumnsToContents()
     tc.body.addWidget(tbl)
     col.addWidget(tc)
+
+    # details and forms
+    row2 = hbox(spacing=S["lg"])
+    dc = section("Details", "Details: what an object is, key by key.")
+    det = Details()
+    det.set_rows([("Source", "Synthetic stocks · seed 7"), ("Contents", "20 stocks, minute bars"),
+                  ("Range", "2 Jan 2024 to 27 Mar 2024, New York time"),
+                  ("Used by", hbox(badge("Gap fade", "brand"), badge("ORB 15m", "brand"), None))])
+    dc.body.addWidget(det)
+    row2.addWidget(dc, 1)
+    fc = section("Form", "ParamForm: fields made from a list of settings.")
+    fc.body.addWidget(ParamForm([_Param("n_symbols", "int", 20, "Stocks"),
+                                 _Param("gap_momentum", "float", 0.0, "Planted edge"),
+                                 _Param("kind", "choice", "core", "What the files hold", choices=("core", "complementary")),
+                                 _Param("annualise", "bool", True, "Yearly figure"),
+                                 _Param("paths", "path", "", "Files")]))
+    row2.addWidget(fc, 1)
+    col.addLayout(row2)
 
     # icons and empty state
     ic = section("Icons", "Line icons on a 24px grid, drawn in any token colour.")

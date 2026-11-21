@@ -1,8 +1,10 @@
 """The shell: pages, docks, moving views between them, themes, the gallery."""
 import pytest
+from PySide6.QtCore import Qt
 
 from titanium.desktop.app import build_window
 from titanium.desktop.design import theme
+from titanium.core.data import DataKind
 from titanium.desktop.views import DOCK, PAGE
 
 
@@ -212,3 +214,72 @@ def test_code_editor_and_knob_control_in_the_kit(qapp):
     assert seen == [0.5] or seen == []  # 100 of 200 steps is the same value
     k.slider.setValue(200)
     assert seen[-1] == 1.0
+
+
+# ---- the Data page ---------------------------------------------------------------------
+def test_data_page_lists_filters_and_describes_datasets(win, ctx, qapp):
+    from titanium.core.strategy import StrategyGraph
+
+    view = win.views["data"]
+    view.background = False
+    assert view.stack.currentWidget() is view.empty
+    dlg = view.open_add()
+    dlg.form_for["synthetic_stocks"].set_value("n_symbols", 2)
+    dlg.form_for["synthetic_stocks"].set_value("n_days", 10)
+    dlg.submit()
+    assert len(ctx.workspace.datasets) == 1 and not dlg.isVisible()
+    core = ctx.workspace.datasets.infos()[0]
+    assert view.table.keys() == [core.id]
+    assert view.details.fields.values["Contents"].text().startswith("2 stocks, minute bars")
+    assert "New York time" in view.details.fields.values["Range"].text()
+
+    gen = view.open_generate(core.id)
+    gen.submit()
+    assert ctx.workspace.datasets.counts()[DataKind.GENERATED] == 1
+    assert view.kind_counts[DataKind.GENERATED].text() == "1 dataset"
+    view.filter.set_index(3)
+    assert len(view.table.keys()) == 1 and view.table.keys()[0] != core.id
+    view.filter.set_index(0)
+    view.search.setText("zzz")
+    assert view.stack.currentWidget() is view.no_match
+    view.search.setText("")
+
+    ctx.workspace.strategies.put("S1", StrategyGraph("S1", "Gap fade", settings={"datasets": [core.id]}))
+    view.table.select(core.id)
+    assert "Gap fade" in [view.table.item(i, 5).text() for i in range(view.table.rowCount())]
+    assert not view.remove(core.id, confirm=False)  # in use
+    assert view.details.error.isVisible()
+
+
+def test_unavailable_sources_cannot_be_added(win):
+    view = win.views["data"]
+    dlg = view.open_add("polygon")
+    assert dlg.current().name == "synthetic_stocks"  # falls back to a source that works
+    row = [s.name for s in dlg.sources].index("polygon")
+    assert not dlg.list.item(row).flags() & Qt.ItemIsEnabled
+    dlg.list.setCurrentRow(row)
+    assert not dlg.ok.isEnabled()
+    dlg.reject()
+
+
+def test_import_needs_files(win):
+    view = win.views["data"]
+    view.background = False
+    dlg = view.open_add("file_import")
+    dlg.submit()
+    assert dlg.error.isVisible() and len(view.ctx.workspace.datasets) == 0
+    dlg.reject()
+
+
+def test_background_build_reports_errors(win, qapp):
+    view = win.views["data"]
+    dlg = view.open_add("file_import", {"paths": "/no/such/file.csv"})
+    dlg.submit()
+    for _ in range(200):
+        qapp.processEvents()
+        if dlg.error.isVisible():
+            break
+        import time
+        time.sleep(0.01)
+    assert "no such file" in dlg.error.text()
+    dlg.reject()

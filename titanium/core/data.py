@@ -53,6 +53,12 @@ class DatasetInfo:
     version: str = ""  # changes whenever the content changes (used as a cache key and in run bundles)
     used_by: list[str] = field(default_factory=list)  # strategy ids
     notes: str = ""
+    # additions (Phase 1A)
+    market: str = "xnas"  # Market.id whose calendar and time zone the data follows
+    inputs: list[str] = field(default_factory=list)  # dataset ids a generated dataset was made from
+    series: list[str] = field(default_factory=list)  # names of complementary or generated series
+    created: datetime | None = None
+    size_bytes: int = 0
 
 
 class LookAheadError(RuntimeError):
@@ -83,10 +89,48 @@ class GuardedView(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class Param:
+    """One setting of a data source or generator, shown as a field in the add dialog.
+
+    ``type``: int, float, str, bool, choice (one of ``choices``), date (YYYY-MM-DD) or path.
+    """
+
+    name: str
+    type: str
+    default: Any
+    label: str = ""
+    help: str = ""
+    choices: tuple[str, ...] = ()
+    minimum: float | None = None
+    maximum: float | None = None
+
+
 @runtime_checkable
 class DataSource(Protocol):
-    """A data-source plugin: loads (or downloads) a dataset."""
+    """A data-source plugin: loads (or downloads) a dataset.
+
+    Library entries also carry ``title``, ``kind``, ``doc``, ``params`` (a list of
+    :class:`Param`) and ``available`` (False for sources not built yet).
+    """
 
     def describe(self, spec: SourceSpec) -> DatasetInfo: ...
 
     def load(self, spec: SourceSpec) -> Any: ...
+
+
+@runtime_checkable
+class Generator(Protocol):
+    """Makes generated data (features, indicators) from another dataset.
+
+    Every value it outputs is stamped with the time it could first have been
+    computed, so generated data obeys the same guard as everything else.
+    """
+
+    name: str
+    title: str
+    params: list[Param]
+
+    def generate(self, data: Any, params: dict[str, Any]) -> dict[str, Any]:
+        """Series by name: DataFrames indexed by known-time (UTC), one column per instrument."""
+        ...

@@ -8,8 +8,9 @@ from __future__ import annotations
 from PySide6.QtCore import QEasingCurve, QPointF, QSize, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
+    QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QPushButton, QSizePolicy, QSpinBox,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from . import icons, theme
@@ -19,7 +20,8 @@ S = T.SPACE
 
 
 def label(text: str, role: str = "", wrap: bool = False) -> QLabel:
-    """Text in one of the type roles: display, heading, title, label, muted, caption, overline, stat."""
+    """Text in one of the type roles: display, heading, title, label, muted, caption, overline, stat,
+    mono (paths, ids), error, key (the left column of a details list)."""
     lbl = QLabel(text)
     if role:
         lbl.setProperty("role", role)
@@ -349,6 +351,274 @@ def paint_nav_marker(widget: QWidget) -> None:
     p.setBrush(theme.qcolor(pal.brand))
     p.drawEllipse(c, 2.4, 2.4)
     p.end()
+
+
+# ---- lists, details and forms (added for the Data page) ------------------------------------
+class DataTable(QTableWidget):
+    """A list of objects, one per row: whole-row selection, no grid, sortable.
+
+    ``set_rows(rows, keys)`` fills it (``keys``: the object ids, in row order);
+    ``selected`` fires with the key of the chosen row.
+    """
+
+    selected = Signal(str)
+
+    def __init__(self, columns: list[str], stretch: int | None = None, parent=None):
+        """``stretch``: the column that takes the spare width (default: the last)."""
+        super().__init__(0, len(columns), parent)
+        self.stretch = stretch
+        self.setHorizontalHeaderLabels(columns)
+        self.verticalHeader().setVisible(False)
+        self.horizontalHeader().setStretchLastSection(stretch is None)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff if stretch is not None else Qt.ScrollBarAsNeeded)
+        self.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.horizontalHeader().setHighlightSections(False)
+        self.setShowGrid(False)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setWordWrap(False)
+        self.verticalHeader().setDefaultSectionSize(T.CONTROL_HEIGHT + S["sm"])
+        self.itemSelectionChanged.connect(self._emit)
+
+    def set_rows(self, rows: list[tuple], keys: list[str]) -> None:
+        keep = self.selected_key()
+        self.blockSignals(True)
+        self.setSortingEnabled(False)
+        self.setRowCount(len(rows))
+        for r, (vals, key) in enumerate(zip(rows, keys)):
+            for c, v in enumerate(vals):
+                item = QTableWidgetItem(str(v))
+                item.setData(Qt.UserRole, key)
+                item.setToolTip(str(v))
+                self.setItem(r, c, item)
+        self.resizeColumnsToContents()
+        if self.stretch is not None:
+            self.horizontalHeader().setSectionResizeMode(self.stretch, QHeaderView.Stretch)
+        self.blockSignals(False)
+        if keep in keys:
+            self.select(keep)
+
+    def keys(self) -> list[str]:
+        return [self.item(r, 0).data(Qt.UserRole) for r in range(self.rowCount())]
+
+    def selected_key(self) -> str | None:
+        rows = self.selectionModel().selectedRows() if self.selectionModel() else []
+        return self.item(rows[0].row(), 0).data(Qt.UserRole) if rows else None
+
+    def select(self, key: str) -> None:
+        for r in range(self.rowCount()):
+            if self.item(r, 0).data(Qt.UserRole) == key:
+                self.selectRow(r)
+                return
+
+    def _emit(self) -> None:
+        key = self.selected_key()
+        if key is not None:
+            self.selected.emit(key)
+
+
+class Details(QWidget):
+    """A details list: small caps keys on the left, plain values on the right.
+
+    ``set_rows([(key, value), ...])``. A value may be text or a widget (e.g. a row of badges).
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setHorizontalSpacing(S["lg"])
+        self.grid.setVerticalSpacing(S["md"])
+        self.grid.setColumnStretch(1, 1)
+        self.values: dict[str, QWidget] = {}
+
+    def set_rows(self, rows: list[tuple[str, object]]) -> None:
+        while self.grid.count():
+            w = self.grid.takeAt(0).widget()
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
+        self.values = {}
+        for i in range(self.grid.rowCount()):
+            self.grid.setRowStretch(i, 0)
+        for r, (key, value) in enumerate(rows):
+            k = label(key.upper(), "key")
+            k.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            self.grid.addWidget(k, r, 0, Qt.AlignTop)
+            if isinstance(value, QWidget):
+                v = value
+            elif isinstance(value, QLayout):
+                v = QWidget()
+                value.setContentsMargins(0, 0, 0, 0)
+                v.setLayout(value)
+            else:
+                v = label(str(value), "", wrap=True)
+                v.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            self.grid.addWidget(v, r, 1)
+            self.values[key] = v
+        self.grid.setRowStretch(len(rows), 1)
+
+
+class ParamForm(QWidget):
+    """Fields for a list of settings (``core.data.Param``): numbers, text, switches, choices,
+    dates and file pickers. ``values()`` reads them back; ``changed`` fires on any edit."""
+
+    changed = Signal()
+
+    def __init__(self, params: list, values: dict | None = None, parent=None):
+        super().__init__(parent)
+        values = values or {}
+        self.params = list(params)
+        self.inputs: dict[str, QWidget] = {}
+        form = QFormLayout(self)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(S["lg"])
+        form.setVerticalSpacing(S["md"])
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        for p in self.params:
+            w = self._field(p, values.get(p.name, p.default))
+            if p.help:
+                w.setToolTip(p.help)
+            self.inputs[p.name] = w
+            form.addRow(label(p.label or p.name.replace("_", " ").capitalize(), "label"), w)
+
+    def _field(self, p, value) -> QWidget:
+        if p.type == "int":
+            w = QSpinBox()
+            w.setRange(int(p.minimum if p.minimum is not None else -10**9),
+                       int(p.maximum if p.maximum is not None else 10**9))
+            w.setValue(int(value))
+            w.valueChanged.connect(self._changed)
+        elif p.type == "float":
+            w = QDoubleSpinBox()
+            w.setDecimals(4)
+            w.setSingleStep(0.05)
+            w.setRange(float(p.minimum if p.minimum is not None else -1e12),
+                       float(p.maximum if p.maximum is not None else 1e12))
+            w.setValue(float(value))
+            w.valueChanged.connect(self._changed)
+        elif p.type == "bool":
+            w = QCheckBox()
+            w.setChecked(bool(value))
+            w.toggled.connect(self._changed)
+        elif p.type == "choice":
+            w = QComboBox()
+            w.addItems([str(c) for c in p.choices])
+            w.setCurrentText(str(value))
+            w.currentTextChanged.connect(self._changed)
+        elif p.type == "path":
+            w = PathField(str(value or ""))
+            w.edit.textChanged.connect(self._changed)
+        else:  # str, date
+            w = QLineEdit(str(value or ""))
+            if p.type == "date":
+                w.setPlaceholderText("YYYY-MM-DD")
+            w.textChanged.connect(self._changed)
+        return w
+
+    def _changed(self, *_):
+        self.changed.emit()
+
+    def values(self) -> dict:
+        out = {}
+        for p in self.params:
+            w = self.inputs[p.name]
+            if isinstance(w, QSpinBox):
+                out[p.name] = w.value()
+            elif isinstance(w, QDoubleSpinBox):
+                out[p.name] = w.value()
+            elif isinstance(w, QCheckBox):
+                out[p.name] = w.isChecked()
+            elif isinstance(w, QComboBox):
+                out[p.name] = w.currentText()
+            elif isinstance(w, PathField):
+                out[p.name] = w.text()
+            else:
+                out[p.name] = w.text()
+        return out
+
+    def set_value(self, name: str, value) -> None:
+        w = self.inputs[name]
+        if isinstance(w, (QSpinBox, QDoubleSpinBox)):
+            w.setValue(value)
+        elif isinstance(w, QCheckBox):
+            w.setChecked(bool(value))
+        elif isinstance(w, QComboBox):
+            w.setCurrentText(str(value))
+        else:
+            w.setText(str(value))
+
+
+class PathField(QWidget):
+    """A text field for one or more file paths (separated by ';') with a Browse button."""
+
+    def __init__(self, text: str = "", filters: str = "Data files (*.csv *.parquet *.pq);;All files (*)", parent=None):
+        super().__init__(parent)
+        self.filters = filters
+        self.edit = QLineEdit(text)
+        self.edit.setPlaceholderText("Choose files")
+        self.browse = button("Browse", "secondary", "folder")
+        self.browse.clicked.connect(self._pick)
+        lay = hbox(self.edit, self.browse)
+        self.setLayout(lay)
+
+    def _pick(self) -> None:
+        files, _ = QFileDialog.getOpenFileNames(self, "Choose files", "", self.filters)
+        if files:
+            self.edit.setText(";".join(files))
+
+    def text(self) -> str:
+        return self.edit.text()
+
+    def setText(self, text: str) -> None:
+        self.edit.setText(text)
+
+
+class Dialog(QDialog):
+    """A modal panel: title and help at the top, ``body`` for content, and a footer with
+    Cancel and one primary action. ``set_busy`` shows work in progress; ``set_error``
+    shows what went wrong in plain words."""
+
+    def __init__(self, title: str, subtitle: str = "", action: str = "Done", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(True)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(S["xl"], S["xl"], S["xl"], S["lg"])
+        outer.setSpacing(S["lg"])
+        head = QVBoxLayout()
+        head.setSpacing(S["xs"])
+        head.addWidget(label(title, "heading"))
+        if subtitle:
+            head.addWidget(label(subtitle, "muted", wrap=True))
+        outer.addLayout(head)
+        self.body = QVBoxLayout()
+        self.body.setSpacing(S["md"])
+        outer.addLayout(self.body, 1)
+        self.error = label("", "error", wrap=True)
+        self.error.hide()
+        outer.addWidget(self.error)
+        self.status = label("", "caption")
+        self.cancel = button("Cancel", "ghost")
+        self.cancel.clicked.connect(self.reject)
+        self.ok = button(action, "primary")
+        self.ok.setDefault(True)
+        outer.addLayout(hbox(self.status, None, self.cancel, self.ok))
+
+    def set_error(self, text: str) -> None:
+        self.error.setText(text)
+        self.error.setVisible(bool(text))
+
+    def set_busy(self, busy: bool, text: str = "Working…") -> None:
+        self.ok.setEnabled(not busy)
+        self.cancel.setEnabled(not busy)
+        self.status.setText(text if busy else "")
+        if busy:
+            self.set_error("")
 
 
 # Code and knobs live in their own file; they are part of the kit all the same.

@@ -99,7 +99,7 @@ def register_starters(registry: Registry) -> None:
 def momentum_rotation(id: str = "S1", name: str = "Momentum rotation") -> StrategyGraph:
     """An example built from the starters: momentum, filtered by trend, top 5 equal weight."""
     g = StrategyGraph(id=id, name=name, doc="Hold the strongest names that are above their moving average.",
-                      settings={"decide_at": "15:50", "every": "day"})
+                      settings={"datasets": [], "decide_at": "15:50", "every": "day"})
     reg = Registry()
     register_starters(reg)
     a = add_to_graph(g, reg, f"{STARTER}/Momentum")
