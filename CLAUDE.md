@@ -49,7 +49,7 @@ Pages never import each other and never reach into the engine.
 - Plugins add entries to libraries via a manifest; removing one never breaks others.
   The loader is `app/plugins.py` (`workspace.plugins`); built-ins live in
   `titanium/plugins/builtin`; plugin code imports only `titanium.sdk`. See `docs/plugins.md`.
-- Run defaults (capital, costs, time frame) come from `workspace.run_defaults`; don't hard-code them.
+- Run defaults (capital, schedule, costs) come from `workspace.run_defaults`; runs start from them, then the strategy's settings, then the run's.
 
 ## Working
 

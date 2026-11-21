@@ -250,11 +250,11 @@ QLabel[badge="danger"] {{ color: {c['danger']}; border: 1px solid {c['danger']};
             padding: 0 {s['sm']}px; font-size: {ty.caption}px; font-weight: 600; }}
 
 /* ---- inputs ---- */
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit {{ background: {c['surface'] if not fx.panel_gradient else c['sunken']};
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit {{ background: {c['surface'] if not fx.panel_gradient else c['sunken']};
             border: 1px solid {c['border_strong'] if not fx.panel_gradient else c['border']};
             border-radius: {r['md']}px; padding: 0 {s['sm']}px; min-height: {T.CONTROL_HEIGHT - 2}px;
             selection-background-color: {c['primary']}; selection-color: {c['on_primary']}; }}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus {{ border: 1px solid {c['primary']}; }}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QTimeEdit:focus {{ border: 1px solid {c['primary']}; }}
 QComboBox::drop-down, QDateEdit::drop-down {{ border: none; width: 24px; }}
 QComboBox::down-arrow, QDateEdit::down-arrow {{ image: url({icons.file("chevron", p.text_muted)}); width: 14px; height: 14px; }}
 QComboBox QAbstractItemView {{ background: {c['surface']}; border: 1px solid {c['border_strong']};

@@ -41,12 +41,17 @@ def test_the_page_keeps_its_cards(page):
 
 
 def test_run_defaults_are_saved_and_reach_the_workspace(page, ctx, home):
+    from PySide6.QtCore import QTime
+
     page.capital.setValue(250_000)
-    page.commission.setValue(0.5)
-    page.timeframe.set_index(1)
-    want = RunDefaults(capital=250_000, commission_bps=0.5, slippage_bps=2.0, timeframe="1min")
+    page.commission.setValue(0.005)
+    page.every.set_index(1)
+    page.decide_at.setTime(QTime(10, 30))
+    page.futures_slippage.setValue(2)
+    want = RunDefaults(capital=250_000, commission_per_share=0.005, every="week", decide_at="10:30",
+                       futures_slippage_ticks=2)
     assert ctx.workspace.run_defaults == want
-    assert ctx.workspace.run_settings({})["timeframe"] == "1min"
+    assert ctx.workspace.run_settings()["every"] == "week"
     # a new session reads them back into its workspace
     again = AppContext(QSettings(str(home / "settings.ini"), QSettings.IniFormat), Workspace())
     assert again.workspace.run_defaults == want

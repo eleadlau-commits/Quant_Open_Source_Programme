@@ -73,6 +73,8 @@ sub-folder is a library folder and each `.py` file in it is one module: a functi
 
 ## Defaults for every run
 
-Settings > Defaults for every run sets capital, commission and slippage (basis points)
-and the time frame. The engine reads them from `workspace.run_defaults`, or
-`workspace.run_settings(overrides)` for a run's full settings.
+Settings > Defaults for every run sets capital, when the strategy decides (`every`,
+`decide_at`) and the cost model (stock half spread, slippage and commission; futures
+commission and slippage). They use the engine's setting names. Every run starts from
+them, then the strategy's own settings, then the run's (`workspace.runs` does this;
+`workspace.run_settings(strategy, run)` shows the result).

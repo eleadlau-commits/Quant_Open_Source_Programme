@@ -242,19 +242,40 @@ def test_user_plugins_load_next_to_the_builtins(tmp_path):
 
 # ---- run defaults and the library folder ------------------------------------------------------
 def test_run_defaults_read_back_and_apply():
-    d = RunDefaults.from_dict({"capital": "250000", "commission_bps": None, "slippage_bps": "x", "timeframe": "1min"})
-    assert d == RunDefaults(capital=250_000, timeframe="1min")
-    assert d.apply({"capital": 5}) == {**d.to_dict(), "capital": 5}
-    with pytest.raises(ValueError):
-        RunDefaults(capital=0)
-    with pytest.raises(ValueError):
-        RunDefaults(timeframe="weekly")
+    d = RunDefaults.from_dict({"capital": "250000", "half_spread_bps": None, "slippage_bps": "x", "every": "week"})
+    assert d == RunDefaults(capital=250_000, every="week")
+    cfg = d.apply({"capital": 5, "costs": {"equity": {"slippage_bps": 9}}}, {"decide_at": "10:00"})
+    assert cfg["capital"] == 5 and cfg["every"] == "week" and cfg["decide_at"] == "10:00"
+    assert cfg["costs"]["equity"] == {"half_spread_bps": 5.0, "slippage_bps": 9, "commission_per_share": 0.0}
+    assert cfg["costs"]["futures"]["commission_per_side"] == 0.85
+    from titanium.core.sim.costs import CostModel
+    assert CostModel.from_settings(cfg["costs"]).equity.slippage_bps == 9  # the engine reads them as they are
+    for bad in ({"capital": 0}, {"every": "weekly"}, {"decide_at": "25:00"}, {"slippage_bps": -1}):
+        with pytest.raises(ValueError):
+            RunDefaults(**bad)
     ws = Workspace()
     heard = []
     ws.run_defaults_changed.connect(heard.append)
     ws.set_run_defaults(d)
     ws.set_run_defaults(d)
-    assert heard == [d] and ws.run_settings({"slippage_bps": 9})["slippage_bps"] == 9
+    assert heard == [d] and ws.run_settings({"capital": 9})["capital"] == 9
+
+
+def test_runs_start_from_the_run_defaults():
+    from titanium.core.module_library import momentum_rotation
+
+    ws = Workspace()
+    info = ws.datasets.add("synthetic_stocks", {"n_symbols": 6, "n_days": 30})
+    g = momentum_rotation()
+    g.settings.pop("every", None)
+    g.settings.update({"dataset": info.id, "capital": 50_000})
+    ws.set_run_defaults(RunDefaults(capital=1_000, every="week", slippage_bps=7))
+    job = ws.runs.prepare(g, {"decide_at": "15:30"})
+    assert job.settings["capital"] == 50_000  # the strategy's own setting wins over the default
+    assert job.settings["every"] == "week" and job.settings["decide_at"] == "15:30"
+    assert job.settings["costs"]["equity"]["slippage_bps"] == 7
+    record = job.execute()
+    assert record.capital == 50_000
 
 
 def test_the_library_folder_adds_modules_by_folder(tmp_path):

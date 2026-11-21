@@ -24,6 +24,10 @@ class Trade:
     side: int
     pnl: float | None = None
     reason: str = ""
+    # additions (Phase 1B)
+    cost: float = 0.0  # spread, slippage and commission paid on the way in and out (already in pnl)
+    flags: list[str] = field(default_factory=list)  # e.g. "delisted", "open" (still held when the run ended)
+    tag: str = ""  # the entry order's tag
 
 
 @dataclass
@@ -40,3 +44,16 @@ class RunRecord:
     states: list[PortfolioState] = field(default_factory=list)  # one per step: positions, cash, equity
     probes: dict[str, list[tuple[datetime, Any]]] = field(default_factory=dict)  # recorded module outputs
     log: list[str] = field(default_factory=list)
+    # additions (Phase 1B)
+    status: str = "done"  # done, cancelled or failed
+    error: str = ""
+    capital: float = 0.0
+    market: str = ""
+    finished: datetime | None = None
+
+    def equity(self) -> list[tuple[datetime, float]]:
+        return [(s.time, s.equity) for s in self.states]
+
+    def growth(self) -> list[tuple[datetime, float]]:
+        """Equity as growth of 1 (how results are shown)."""
+        return [(s.time, s.growth) for s in self.states]
