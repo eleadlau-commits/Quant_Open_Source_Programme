@@ -97,6 +97,7 @@ def test_generated_code_round_trips_modules_links_and_knob_values():
     assert back.links == g.links
     assert back.knob_values == g.knob_values
     assert [m.layout for m in back.modules] == [m.layout for m in g.modules]
+    assert [m.source for m in back.modules] == [m.source for m in g.modules]
     assert generate(back) == src  # stable
 
 
@@ -123,6 +124,15 @@ def drop_small(scores):
     back = update_from_code(g, src)
     assert back.module("m9").inputs[0].name == "scores"
     assert any(ln.dst_module == "m9" and ln.src_module == "m1" for ln in back.links)
+
+
+def test_a_file_may_say_where_a_module_sits_and_comes_from():
+    src = '''@module(id="a", kind="decide", source="starter/Top N equal weight", layout=(10, 20))
+def pick(view):
+    return {}
+'''
+    m = parse(src).modules[0]
+    assert m.source == "starter/Top N equal weight" and m.layout == (10.0, 20.0)
 
 
 def test_bad_links_and_syntax_are_reported_with_lines():

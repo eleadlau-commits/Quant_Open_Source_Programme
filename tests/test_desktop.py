@@ -88,3 +88,127 @@ def test_no_hard_coded_colours_outside_the_design_system():
         if re.search(r"#[0-9a-fA-F]{6}\b|setStyleSheet\(", f.read_text()):
             offenders.append(str(f.relative_to(root)))
     assert offenders == []
+
+
+# ---------------------------------------------------------------- the Code view and Knobs dock
+PLAIN_FILE = '''"""Hold everything."""
+SETTINGS = {"every": "day"}
+
+
+def decide(F, p):
+    w = 0.25
+    return {s: w for s in F.universe()}
+'''
+
+
+def _code_tab(win, qapp):
+    from titanium.core.module_library import momentum_rotation
+
+    win.show_page("strategies")
+    view = win.views["strategies"]
+    g = momentum_rotation(id="S9")
+    view.open_graph(g, view=1)
+    qapp.processEvents()
+    return view, view.tabs.currentWidget()
+
+
+def test_code_view_shows_the_strategy_and_reads_edits_back(win, ctx, qapp):
+    view, tab = _code_tab(win, qapp)
+    code = tab.code
+    assert tab.views.currentWidget() is code
+    assert "def momentum(view):" in code.editor.toPlainText()
+    code.editor.setPlainText(code.editor.toPlainText().replace('knob("top", 5,', 'knob("top", 7,'))
+    assert code.read_back()
+    g = ctx.workspace.strategies.get("S9")
+    assert g.knobs()["m3.top"].default == 7
+    assert tab.badge.text() == "3 modules"
+
+
+def test_code_view_keeps_the_last_good_graph_on_a_syntax_error(win, ctx, qapp):
+    view, tab = _code_tab(win, qapp)
+    tab.code.editor.setPlainText("def broken(:\n")
+    assert not tab.code.read_back()
+    assert tab.code.error.isVisibleTo(tab) and len(ctx.workspace.strategies.get("S9").modules) == 3
+
+
+def test_make_knob_with_the_cursor_on_a_number(win, ctx, qapp):
+    view, tab = _code_tab(win, qapp)
+    ed = tab.code.editor
+    text = ed.toPlainText()
+    pos = text.index("scores[s] > 0 or") + len("scores[s] > ")
+    c = ed.textCursor()
+    c.setPosition(pos)
+    ed.setTextCursor(c)
+    assert tab.code.make_knob() == "value"
+    assert 'knob("value", 0, lo=0, hi=10)' in ed.toPlainText()
+    assert "m3.value" in ctx.workspace.strategies.get("S9").knobs()
+    assert ed.textCursor().block().text().strip().startswith("best = ")  # the cursor stayed on its line
+
+
+def test_knobs_dock_lists_and_turns_knobs(win, ctx, qapp):
+    view, tab = _code_tab(win, qapp)
+    knobs = win.views["knobs"]
+    assert set(knobs.controls) == {"m1.days", "m2.days", "m3.top", "m3.positive_only"}
+    knobs.controls["m3.top"].slider.setValue(3)
+    g = ctx.workspace.strategies.get("S9")
+    assert g.knob_values == {"m3.top": 3}
+    assert 'KNOBS = {"m3.top": 3}' in tab.code.editor.toPlainText()
+    knobs.controls["m3.positive_only"].switch.setChecked(False)
+    assert g.knob_values["m3.positive_only"] is False
+    knobs.reset()
+    assert g.knob_values == {} and "KNOBS" not in tab.code.editor.toPlainText()
+
+
+def test_knobs_dock_follows_the_tab_in_front(win, ctx, qapp):
+    view, tab = _code_tab(win, qapp)
+    view.new_strategy()
+    assert win.views["knobs"].controls == {}
+    view.tabs.setCurrentWidget(tab)
+    assert len(win.views["knobs"].controls) == 4
+
+
+def test_import_python_file_opens_one_module_on_the_code_view(win, ctx, qapp, tmp_path):
+    f = tmp_path / "hold_everything.py"
+    f.write_text(PLAIN_FILE)
+    win.show_page("strategies")
+    view = win.views["strategies"]
+    g = view.import_python(f)
+    tab = view.tabs.currentWidget()
+    assert g.name == "Hold everything" and [m.id for m in g.modules] == ["decide"]
+    assert tab.views.currentIndex() == 1 and "def decide(F, p):" in tab.code.editor.toPlainText()
+    assert tab.badge.text() == "1 module"
+
+
+def test_add_module_from_the_library_and_save(win, ctx, qapp, tmp_path):
+    from titanium.core.strategy import load_strategy
+
+    win.show_page("strategies")
+    view = win.views["strategies"]
+    g = view.new_strategy()
+    tab = view.tabs.currentWidget()
+    tab.code.add_module("starter/Momentum")
+    g = ctx.workspace.strategies.get(g.id)
+    assert [m.name for m in g.modules] == ["Momentum"]
+    assert "def momentum(view):" in tab.code.editor.toPlainText()
+    path = view.save_current(tmp_path)
+    assert load_strategy(path).modules[0].name == "Momentum"
+    view.close_tab(view.tabs.currentIndex())
+    assert g.id not in ctx.workspace.strategies
+
+
+def test_code_editor_and_knob_control_in_the_kit(qapp):
+    from titanium.desktop.design.components import CodeEditor, KnobControl
+
+    ed = CodeEditor()
+    ed.setPlainText("x = 1\n")
+    ed.set_text_preserving("x = 2\n")
+    assert ed.toPlainText() == "x = 2\n"
+    ed.undo()
+    assert ed.toPlainText() == "x = 1\n"
+    seen = []
+    k = KnobControl("days", "real", 0.5, 0.0, 1.0)
+    k.changed.connect(seen.append)
+    k.slider.setValue(100)
+    assert seen == [0.5] or seen == []  # 100 of 200 steps is the same value
+    k.slider.setValue(200)
+    assert seen[-1] == 1.0

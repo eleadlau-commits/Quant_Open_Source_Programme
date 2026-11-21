@@ -33,7 +33,6 @@ import ast
 import io
 import json
 import keyword
-import pprint
 import re
 import tokenize
 from contextvars import ContextVar
@@ -196,8 +195,27 @@ def refresh(m: Module) -> Module:
 
 
 # ---------------------------------------------------------------- graph -> file
-def _py(value: Any) -> str:
-    return pprint.pformat(value, indent=4, width=96, sort_dicts=False)
+def _py(value: Any, indent: int = 0) -> str:
+    """A plain value as Python, strings in double quotes; long dicts and lists one item per line."""
+    def flat(v: Any) -> str:
+        if isinstance(v, str):
+            return json.dumps(v, ensure_ascii=False)
+        if isinstance(v, dict):
+            return "{" + ", ".join(f"{flat(k)}: {flat(x)}" for k, x in v.items()) + "}"
+        if isinstance(v, list):
+            return "[" + ", ".join(flat(x) for x in v) + "]"
+        if isinstance(v, tuple):
+            return "(" + ", ".join(flat(x) for x in v) + ("," if len(v) == 1 else "") + ")"
+        return repr(v)
+
+    one = flat(value)
+    if len(one) + indent <= 88 or not isinstance(value, (dict, list)) or not value:
+        return one
+    pad = " " * (indent + 4)
+    if isinstance(value, dict):
+        items = [f"{pad}{flat(k)}: {_py(v, indent + 4)}," for k, v in value.items()]
+        return "{\n" + "\n".join(items) + "\n" + " " * indent + "}"
+    return "[\n" + "\n".join(f"{pad}{_py(v, indent + 4)}," for v in value) + "\n" + " " * indent + "]"
 
 
 def _identifier(text: str) -> str:
@@ -246,10 +264,8 @@ def decorator(m: Module, links: list[Link], fn_name: str) -> str:
     mine = {ln.dst_port: f"{ln.src_module}.{ln.src_port}" for ln in links if ln.dst_module == m.id}
     if mine:
         args.append(f"links={_q(mine)}")
-    if m.source:
-        args.append(f"source={_q(m.source)}")
-    if m.layout is not None:
-        args.append(f"layout=({m.layout[0]:g}, {m.layout[1]:g})")
+    # where it came from in the library and where it sits on the canvas are kept in the
+    # graph, not written here (parse reads them if a file has them)
     one = f"@module({', '.join(args)})"
     if len(one) <= 100:
         return one
@@ -430,6 +446,8 @@ def parse(src: str, previous: StrategyGraph | None = None, id: str | None = None
             m.outputs = [Port(p.name, odocs.get(p.name, "")) for p in m.outputs]
             m.source = m.source or old.source
             m.layout = old.layout
+            m.knobs = [replace(k, doc=k.doc or next((o.doc for o in old.knobs if o.name == k.name), ""))
+                       for k in m.knobs]
         lay = kw.get("layout")
         if lay is not None:
             m.layout = (float(lay[0]), float(lay[1]))

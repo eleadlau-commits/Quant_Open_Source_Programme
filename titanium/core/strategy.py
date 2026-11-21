@@ -10,6 +10,7 @@ time it sees a guarded view and its current portfolio, and returns a decision.
 """
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass, field
 from enum import Enum
@@ -141,7 +142,7 @@ def graph_to_dict(graph: StrategyGraph) -> dict[str, Any]:
     return {
         "format": FILE_FORMAT, "version": FILE_VERSION,
         "id": graph.id, "name": graph.name, "doc": graph.doc, "preamble": graph.preamble,
-        "settings": graph.settings, "knob_values": graph.knob_values,
+        "settings": copy.deepcopy(graph.settings), "knob_values": copy.deepcopy(graph.knob_values),
         "modules": [{"id": m.id, "kind": m.kind, "name": m.name, "code": m.code,
                      "inputs": [port(p) for p in m.inputs], "outputs": [port(p) for p in m.outputs],
                      "knobs": [knob(k) for k in m.knobs], "source": m.source,

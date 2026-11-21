@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Generic, TypeVar
 
 from ..core.data import DatasetInfo
+from ..core.module_library import register_starters
 from ..core.plugins import Registry
 from ..core.run import RunRecord
 from ..core.strategy import StrategyGraph
@@ -49,7 +50,17 @@ class Collection(Generic[T]):
 
 class Workspace:
     def __init__(self, registry: Registry | None = None) -> None:
-        self.registry = registry or Registry()
+        if registry is None:
+            registry = Registry()
+            register_starters(registry)
+        self.registry = registry
         self.datasets: Collection[DatasetInfo] = Collection()
         self.strategies: Collection[StrategyGraph] = Collection()
         self.runs: Collection[RunRecord] = Collection()
+        self.focused_strategy: str | None = None  # the strategy whose tab is in front
+        self.strategy_focused = Event()  # (id or None,)
+
+    def focus_strategy(self, id: str | None) -> None:
+        if id != self.focused_strategy:
+            self.focused_strategy = id
+            self.strategy_focused.emit(id)

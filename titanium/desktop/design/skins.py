@@ -28,6 +28,10 @@ _EFFECT_FIELDS = {f.name: f for f in fields(T.Effects)}
 _CHOICES = {"canvas": {"none", "dots", "lines"}, "nav_marker": {"tile", "dot"},
             "primary": {"fill", "edge"}, "run": {"fill", "capsule"}, "numbers": {"ui", "mono"}}
 _RADII = ("sm", "md", "lg", "xl")
+# Colours a pack may leave out, and the colour each one falls back to.
+CODE_FALLBACKS = {"code_keyword": "brand", "code_function": "primary", "code_string": "success",
+                  "code_number": "accent_2", "code_comment": "text_faint", "code_decorator": "text_muted",
+                  "code_knob": "brand_soft"}
 
 _skins: dict[str, T.Skin] = {}
 _raw: dict[str, dict] = {}  # merged data, so later skins can extend earlier ones
@@ -49,6 +53,7 @@ def _palette(name: str, data: dict, where: str) -> T.Palette:
     unknown = set(data) - set(_PALETTE_KEYS)
     if unknown:
         raise SkinError(f"{where}: unknown colour names {sorted(unknown)}")
+    data = {**{k: data[v] for k, v in CODE_FALLBACKS.items() if k not in data and v in data}, **data}
     missing = [k for k in _PALETTE_KEYS if k not in data]
     if missing:
         raise SkinError(f"{where}: missing colours {missing}")

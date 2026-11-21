@@ -349,3 +349,7 @@ def paint_nav_marker(widget: QWidget) -> None:
     p.setBrush(theme.qcolor(pal.brand))
     p.drawEllipse(c, 2.4, 2.4)
     p.end()
+
+
+# Code and knobs live in their own file; they are part of the kit all the same.
+from .code_editor import CodeEditor, KnobControl  # noqa: E402,F401

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from . import icons, theme
 from . import tokens as T
 from .components import (
-    Canvas, Card, EmptyState, Logo, RunButton, SearchField, Segmented, StatTile, badge, button, hbox, label,
+    Canvas, Card, CodeEditor, EmptyState, KnobControl, Logo, RunButton, SearchField, Segmented, StatTile, badge, button, hbox, label,
 )
 
 S = T.SPACE
@@ -127,6 +127,33 @@ def build() -> QWidget:
     canvas.body.addWidget(label("Modules go here", "muted"), 0, Qt.AlignCenter)
     cv.body.addWidget(canvas)
     col.addWidget(cv)
+
+    # code and knobs
+    cd = section("Code and knobs", "The strategy code editor (mono face, the skin's code colours) and knob controls.")
+    ed = CodeEditor()
+    ed.setPlainText('''@module(id="m1", name="Momentum", kind="transform", outputs=["scores"])
+def momentum(view):
+    """Return over the last `days` completed days."""
+    days = knob("days", 20, lo=5, hi=120)  # a knob
+    scores = {}
+    for s in view.universe():
+        close = list(view.bars(s, "1d")["close"])
+        if len(close) > days:
+            scores[s] = close[-1] / close[-days - 1] - 1
+    return scores
+''')
+    ed.setFixedHeight(230)
+    knobs = QVBoxLayout()
+    knobs.setSpacing(S["sm"])
+    knobs.addWidget(KnobControl("days", "int", 20, 5, 120, 1, "Momentum"))
+    knobs.addWidget(KnobControl("min_move", "real", 0.02, 0.0, 0.1, None, "Top N"))
+    knobs.addWidget(KnobControl("positive_only", "bool", True, note="Top N"))
+    knobs.addStretch()
+    box = QWidget()
+    box.setFixedWidth(260)
+    box.setLayout(knobs)
+    cd.body.addLayout(hbox(ed, box, spacing=S["lg"]))
+    col.addWidget(cd)
 
     # table
     tc = section("Table", "Lists of datasets, strategies, trades.")

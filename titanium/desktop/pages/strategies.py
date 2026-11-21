@@ -1,19 +1,27 @@
 """Strategies page: one tab per strategy, each with Patch bay, Code and Run views.
 
-The three views are built out in Phases 1C, 2D and 2E; this is their frame.
+The Code view is built (Phase 1C); the patch bay and Run views follow in Phase 2.
 """
 from __future__ import annotations
 
 import itertools
+import re
+from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QMenu, QStackedWidget, QTabBar, QTabWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QFileDialog, QMenu, QMessageBox, QStackedWidget, QTabBar, QTabWidget, QToolButton, QVBoxLayout, QWidget,
+)
 
-from ...core.strategy import StrategyGraph
+from ...app.paths import app_folder
+from ...core.strategy import StrategyGraph, load_strategy, save_strategy
+from ...core.strategy_code import import_python
 from ..design import icons, theme
 from ..design import tokens as T
 from ..design.components import Canvas, EmptyState, RunButton, Segmented, badge, button, hbox, label
 from ..views import View
+from .strategy_code import CodeView
 
 S = T.SPACE
 STRATEGY_VIEWS = (
@@ -26,26 +34,49 @@ STRATEGY_VIEWS = (
 class StrategyTab(QWidget):
     """One strategy: a switch between its three views."""
 
-    def __init__(self, graph: StrategyGraph):
+    def __init__(self, graph: StrategyGraph, workspace=None):
         super().__init__()
         self.graph = graph
+        self.workspace = workspace
         lay = QVBoxLayout(self)
         lay.setContentsMargins(S["xl"], S["lg"], S["xl"], S["xl"])
         lay.setSpacing(S["lg"])
         self.switch = Segmented([name for name, _, _ in STRATEGY_VIEWS])
         self.run_btn = RunButton("Run", "Ctrl ↵", "Run this strategy (Ctrl+Enter)")
-        lay.addLayout(hbox(self.switch, badge("Empty strategy"), None, self.run_btn))
+        self.badge = badge("")
+        lay.addLayout(hbox(self.switch, self.badge, None, self.run_btn))
         self.views = QStackedWidget()
         for i, (name, icon, text) in enumerate(STRATEGY_VIEWS):
-            empty = EmptyState(icon, name, text)
             if i == 0:  # the patch bay is a canvas
                 canvas = Canvas()
-                canvas.body.addWidget(empty)
+                canvas.body.addWidget(EmptyState(icon, name, text))
                 self.views.addWidget(canvas)
+            elif i == 1:
+                self.code = CodeView(graph, workspace)
+                self.views.addWidget(self.code)
             else:
-                self.views.addWidget(empty)
+                self.views.addWidget(EmptyState(icon, name, text))
         lay.addWidget(self.views, 1)
         self.switch.changed.connect(self.views.setCurrentIndex)
+        self.code.graph_changed.connect(self._set_graph)
+        if workspace is not None:
+            workspace.strategies.changed.connect(self._on_changed)
+        self._set_graph(graph)
+
+    def _on_changed(self, id: str, graph: StrategyGraph) -> None:
+        if id == self.graph.id:
+            self._set_graph(graph)
+
+    def detach(self) -> None:
+        """Stop following the workspace (the tab is closing)."""
+        if self.workspace is not None:
+            self.workspace.strategies.changed.disconnect(self._on_changed)
+            self.code.detach()
+
+    def _set_graph(self, graph: StrategyGraph) -> None:
+        self.graph = graph
+        n = len(graph.modules)
+        self.badge.setText(f"{n} module{'s' * (n != 1)}" if n else "Empty strategy")
 
 
 class StrategiesView(View):
@@ -67,10 +98,14 @@ class StrategiesView(View):
         el.setContentsMargins(S["xl"], S["xl"], S["xl"], S["xl"])
         new_btn = button("New empty strategy", "primary", "plus")
         new_btn.clicked.connect(self.new_strategy)
+        import_btn = button("Import Python file", icon="import")
+        import_btn.clicked.connect(self.ask_import_python)
+        lib_btn = button("Strategy library", icon="library", tip="The strategy library (Phase 2)")
+        lib_btn.setEnabled(False)
         self.empty = EmptyState(
             "strategies", "No strategies open",
             "Start an empty strategy, pick one from the strategy library, or import a Python file.",
-            [new_btn, button("Strategy library", icon="library"), button("Import Python file", icon="import")])
+            [new_btn, lib_btn, import_btn])
         el.addWidget(self.empty)
         self.pages.addWidget(empty_wrap)
 
@@ -78,6 +113,10 @@ class StrategiesView(View):
         self.tabs.setDocumentMode(True)
         self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
+        self.tabs.currentChanged.connect(self._focus)
+        save = QShortcut(QKeySequence.Save, self)
+        save.setContext(Qt.WidgetWithChildrenShortcut)
+        save.activated.connect(self.save_current)
         self.plus = QToolButton()
         self.plus.setToolTip("Add a strategy")
         self.plus.setPopupMode(QToolButton.InstantPopup)
@@ -92,7 +131,10 @@ class StrategiesView(View):
         m = QMenu(self)
         m.addAction("New empty strategy", self.new_strategy)
         m.addAction("From the strategy library…").setEnabled(False)
-        m.addAction("Import a Python file…").setEnabled(False)
+        m.addAction("Import a Python file…", self.ask_import_python)
+        m.addAction("Open a strategy file…", self.ask_open_file)
+        m.addSeparator()
+        m.addAction("Save this strategy", self.save_current)
         return m
 
     def subtitle(self) -> str:
@@ -105,17 +147,83 @@ class StrategiesView(View):
         new.clicked.connect(self.new_strategy)
         return [lib, new]
 
+    def _next_id(self) -> str:
+        taken = set(self.ctx.workspace.strategies.ids()) if self.ctx is not None else set()
+        while True:
+            sid = f"S{next(self._n)}"
+            if sid not in taken:
+                return sid
+
     def new_strategy(self) -> StrategyGraph:
-        n = next(self._n)
-        graph = StrategyGraph(id=f"S{n}", name=f"Strategy {n}")
-        if self.ctx is not None:
-            self.ctx.workspace.strategies.put(graph.id, graph)
-        tab = StrategyTab(graph)
+        sid = self._next_id()
+        return self.open_graph(StrategyGraph(id=sid, name=f"Strategy {sid[1:]}"))
+
+    def open_graph(self, graph: StrategyGraph, view: int = 0) -> StrategyGraph:
+        """Open a strategy in a new tab (and the workspace), showing view ``view`` (0 patch bay, 1 code)."""
+        ws = self.ctx.workspace if self.ctx is not None else None
+        if ws is not None:
+            ws.strategies.put(graph.id, graph)
+        tab = StrategyTab(graph, ws)
         i = self.tabs.addTab(tab, f"{graph.id}  {graph.name}")
         self.tabs.tabBar().setTabButton(i, QTabBar.RightSide, self._close_button(tab))
         self.tabs.setCurrentIndex(i)
         self.pages.setCurrentWidget(self.tabs)
+        tab.switch.set_index(view)
+        self._focus(i)
         return graph
+
+    def _focus(self, i: int) -> None:
+        if self.ctx is not None:
+            tab = self.tabs.widget(i)
+            self.ctx.workspace.focus_strategy(tab.graph.id if isinstance(tab, StrategyTab) else None)
+
+    # ---- files
+    def import_python(self, path: str | Path) -> StrategyGraph:
+        """Import a Python strategy file into a new tab, opened on its code."""
+        path = Path(path)
+        name = path.stem.replace("_", " ").strip().capitalize() or "Imported strategy"
+        graph = import_python(path.read_text(encoding="utf-8"), self._next_id(), name)
+        return self.open_graph(graph, view=1)
+
+    def open_file(self, path: str | Path) -> StrategyGraph:
+        graph = load_strategy(path)
+        if self.ctx is not None and graph.id in self.ctx.workspace.strategies:
+            graph.id = self._next_id()
+        return self.open_graph(graph, view=1)
+
+    def save_current(self, folder: str | Path | None = None) -> Path | None:
+        """Save the strategy in front to ``<app folder>/strategies/<id> <name>.json``."""
+        tab = self.tabs.currentWidget()
+        if not isinstance(tab, StrategyTab) or not tab.code.read_back():
+            return None
+        folder = Path(folder) if folder is not None else app_folder() / "strategies"
+        folder.mkdir(parents=True, exist_ok=True)
+        safe = re.sub(r"[^\w\- ]+", "", f"{tab.graph.id} {tab.graph.name}").strip()
+        path = folder / f"{safe}.json"
+        save_strategy(tab.graph, path)
+        return path
+
+    def _start_folder(self) -> str:
+        folder = app_folder() / "strategies"
+        return str(folder if folder.exists() else Path.home())
+
+    def ask_import_python(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import a Python strategy", self._start_folder(),
+                                              "Python files (*.py)")
+        if path:
+            self._try(lambda: self.import_python(path), "Couldn't import that file")
+
+    def ask_open_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Open a strategy file", self._start_folder(),
+                                              "Strategy files (*.json)")
+        if path:
+            self._try(lambda: self.open_file(path), "Couldn't open that file")
+
+    def _try(self, fn, title: str) -> None:
+        try:
+            fn()
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            QMessageBox.warning(self, title, str(e))
 
     def _close_button(self, tab: QWidget) -> QToolButton:
         b = QToolButton()
@@ -130,8 +238,12 @@ class StrategiesView(View):
 
     def close_tab(self, i: int) -> None:
         tab = self.tabs.widget(i)
+        if isinstance(tab, StrategyTab):
+            tab.detach()
         self.tabs.removeTab(i)
         if self.ctx is not None and isinstance(tab, StrategyTab):
             self.ctx.workspace.strategies.remove(tab.graph.id)
+        if tab is not None:
+            tab.deleteLater()
         if self.tabs.count() == 0:
             self.pages.setCurrentIndex(0)
