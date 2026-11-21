@@ -1,21 +1,25 @@
-import json
-from pathlib import Path
+import os
 
 import pytest
 
-from honestbt.registry import load_plugins
-
-load_plugins()
-ROOT = Path(__file__).resolve().parent.parent
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 @pytest.fixture(scope="session")
-def base_config():
-    return json.loads((ROOT / "honestbt" / "plugins" / "starter" / "strategies" / "monday_gap_top5.json").read_text())
+def qapp():
+    from PySide6.QtWidgets import QApplication
+
+    from titanium.desktop.design import theme
+
+    app = QApplication.instance() or QApplication([])
+    theme.apply(app, "light")
+    yield app
 
 
-@pytest.fixture(scope="session")
-def small_data():
-    from honestbt.registry import get
-    synthetic = get("data", "synthetic")
-    return synthetic(n_symbols=20, n_days=60, seed=3)
+@pytest.fixture
+def ctx(tmp_path):
+    from PySide6.QtCore import QSettings
+
+    from titanium.desktop.context import AppContext
+
+    return AppContext(QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat))
