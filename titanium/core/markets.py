@@ -11,6 +11,8 @@ from datetime import date, datetime, time
 from typing import Protocol, runtime_checkable
 from zoneinfo import ZoneInfo
 
+from .calendars import NasdaqCalendar
+
 
 @dataclass(frozen=True)
 class Session:
@@ -63,7 +65,7 @@ class Market:
         return ts.astimezone(self.tz)
 
 
-# The first market. Its exchange calendar is supplied by the data section.
+# The first market, with its rule-based exchange calendar.
 NASDAQ = Market(
     id="xnas",
     name="Nasdaq (US)",
@@ -74,4 +76,24 @@ NASDAQ = Market(
         Session("regular", time(9, 30), time(16, 0)),
         Session("post", time(16, 0), time(20, 0)),
     ),
+    calendar=NasdaqCalendar(),
 )
+
+# US index futures (NQ, MNQ) on CME Globex: nearly round the clock, 18:00 to 17:00 New York
+# time with a one-hour halt. The "regular" session is the cash-market day, so daily bars
+# line up with stocks. Uses the US equity holiday calendar until a CME calendar is added.
+CME_GLOBEX = Market(
+    id="cme",
+    name="CME Globex (US index futures)",
+    timezone="America/New_York",
+    currency="USD",
+    sessions=(
+        Session("overnight", time(18, 0), time(9, 30)),
+        Session("regular", time(9, 30), time(16, 0)),
+        Session("close", time(16, 0), time(17, 0)),
+    ),
+    notes="Uses the US equity holiday calendar for now.",
+    calendar=NasdaqCalendar(),
+)
+
+MARKETS = {NASDAQ.id: NASDAQ, CME_GLOBEX.id: CME_GLOBEX}
