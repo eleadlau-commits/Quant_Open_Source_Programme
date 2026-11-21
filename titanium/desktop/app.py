@@ -80,7 +80,9 @@ def self_test(win: MainWindow) -> list[str]:
             if not record.states:
                 problems.append("the test run recorded no steps")
     except Exception as e:  # noqa: BLE001
-        problems.append(f"test run: {e!r}")
+        import traceback
+
+        problems.append(f"test run: {e!r}\n" + "".join(traceback.format_exc(limit=-8)))
     return problems
 
 
