@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "titanium"
-version = "0.2.0.dev0"
+version = "0.2.0"
 description = "A desktop workbench for building, running and honestly judging trading strategies"
 readme = "README.md"
 requires-python = ">=3.11"

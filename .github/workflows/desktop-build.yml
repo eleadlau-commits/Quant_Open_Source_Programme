@@ -1,0 +1,104 @@
+name: desktop-build
+# Builds the Windows installer (TitaniumSetup.exe) and a portable Titanium.exe,
+# self-tests the portable exe and both installer options, and publishes them:
+# - pushes to main update the "desktop-latest" release
+# - a pushed tag like v0.2.0 makes a release of its own
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    # No QT_QPA_PLATFORM=offscreen: the self-tests open a real window, so a missing
+    # Windows platform plugin fails here rather than on someone's PC.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . pyinstaller
+      - name: Build portable exe
+        run: python packaging/build_exe.py
+      - name: Build app folder for the installer
+        run: python packaging/build_exe.py --onedir
+      - name: Check the Qt Windows platform plugin is bundled
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem -Recurse dist\Titanium -Filter qwindows.dll | Select-Object -First 1
+          if (-not $f) { Write-Error "qwindows.dll missing from the app folder"; exit 1 }
+          $f.FullName
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DMyAppVersion=$version" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Check the Titanium icon is embedded at every size
+        run: |
+          pip install pefile
+          python packaging/check_icon.py dist/Titanium.exe dist/Titanium/Titanium.exe dist/TitaniumSetup.exe
+      - name: Test portable exe
+        shell: pwsh
+        run: |
+          $env:TITANIUM_HOME = "$PWD\home_portable"
+          $env:TITANIUM_SELFTEST_OUT = "$PWD\portable.txt"
+          $p = Start-Process dist\Titanium.exe -ArgumentList "--self-test" -Wait -PassThru
+          if (Test-Path portable.txt) { Get-Content portable.txt } else { Get-Content home_portable\titanium.log }
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Test installer, standalone option
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\TitaniumSetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/TYPE=standalone","/DIR=C:\ti_standalone" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+          $env:TITANIUM_HOME = "$PWD\home_standalone"
+          $env:TITANIUM_SELFTEST_OUT = "$PWD\standalone.txt"
+          $p = Start-Process C:\ti_standalone\Titanium\Titanium.exe -ArgumentList "--self-test" -Wait -PassThru
+          if (Test-Path standalone.txt) { Get-Content standalone.txt } else { Get-Content home_standalone\titanium.log }
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Test installer, use-my-Python option
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\TitaniumSetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/TYPE=system","/DIR=C:\ti_system" -Wait -PassThru
+          if (Test-Path C:\ti_system\install.log) { Get-Content C:\ti_system\install.log -Tail 5 }
+          if ($p.ExitCode -ne 0) { exit 1 }
+          $env:TITANIUM_HOME = "$PWD\home_system"
+          $env:TITANIUM_SELFTEST_OUT = "$PWD\system.txt"
+          $p = Start-Process C:\ti_system\.venv\Scripts\python.exe -ArgumentList "-m","titanium.desktop","--self-test" -WorkingDirectory C:\ti_system -Wait -PassThru
+          Get-Content system.txt; if ($p.ExitCode -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Titanium-windows
+          path: |
+            dist/TitaniumSetup.exe
+            dist/Titanium.exe
+      - name: Publish to the desktop-latest release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="Titanium for Windows (latest)"
+          NOTES="Built automatically from main. TitaniumSetup.exe: installer; choose Standalone (own Python) or Use my installed Python. Titanium.exe: portable single file, no install. Windows may warn about an unknown publisher: click More info, then Run anyway."
+          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --prerelease --title "$TITLE" --notes "$NOTES"
+          gh release upload desktop-latest dist/TitaniumSetup.exe dist/Titanium.exe --clobber
+          gh release edit desktop-latest --title "$TITLE" --notes "$NOTES"
+          for old in StrategyLabSetup.exe StrategyLab.exe; do
+            gh release delete-asset desktop-latest "$old" --yes 2>/dev/null || true
+          done
+      - name: Publish a release for the tag
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --title "Titanium $TAG" --notes-from-tag
+          gh release upload "$TAG" dist/TitaniumSetup.exe dist/Titanium.exe --clobber

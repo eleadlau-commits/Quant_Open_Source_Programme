@@ -23,10 +23,17 @@ A desktop workbench for building, running and honestly judging trading strategie
 Every panel is a view that can be shown as a page or as a dock (Settings → Layout,
 or right-click a page in the rail).
 
-## Status
+## Download (Windows)
 
-Phase 0, the foundation: the layers, the core interfaces, the design system and the
-window shell with empty pages. Sections are built next, one at a time.
+The latest build of `main` is on the
+[desktop-latest release](../../releases/tag/desktop-latest):
+
+- `TitaniumSetup.exe`: installer. Choose Standalone (includes its own Python) or Use my
+  installed Python 3.11+.
+- `Titanium.exe`: one portable file, no install.
+
+Windows may warn about an unknown publisher: click More info, then Run anyway. Your
+datasets, plugins, skins and module library live in `Documents/Titanium`.
 
 ## Run it
 
@@ -35,7 +42,13 @@ pip install -e ".[dev]"      # Python 3.11+
 titanium                     # or: python -m titanium.desktop
 python -m titanium.desktop.design.gallery   # every UI component, light (add --dark)
 pytest -q
+titanium --self-test         # opens every view and runs a small strategy, then exits
 ```
+
+Build the Windows app yourself (on Windows): `pip install -e . pyinstaller`, then
+`python packaging/build_exe.py` (portable exe) or `--onedir` plus Inno Setup's
+`iscc packaging\installer.iss` (installer). `.github/workflows/desktop-build.yml` does
+all of this on every push to `main` and on tags like `v0.2.0`.
 
 ## Layout
 
@@ -45,6 +58,7 @@ titanium/core/      no UI: markets, instruments, data, strategy model, engine,
 titanium/app/       the shared objects every page works on
 titanium/desktop/   the Qt shell: design system, views, pages and docks
 tools/              screenshots of every page, light and dark
+packaging/          the Windows build: PyInstaller entry, installer, icons
 ```
 
 Not financial advice. Surviving tests is never evidence a strategy will make money.
