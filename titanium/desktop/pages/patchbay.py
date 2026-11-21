@@ -19,6 +19,7 @@ from ...core.module_library import folders
 from ...core.strategy import Link, StrategyGraph, graph_from_dict, graph_to_dict
 from ..design import tokens as T
 from ..design.components import (
+    flow,
     Canvas, CableEnds, KnobSpec, NodeCanvasScene, NodeCanvasView, NodeSpec, badge, button, hbox, label,
 )
 from ..design.node_canvas import CableItem, NodeItem, node_size
@@ -66,9 +67,9 @@ class PatchBay(QWidget):
         self.fit_btn = button("Fit", "ghost", tip="Show every module (Ctrl+0)")
         self.error = badge("", "danger")
         self.error.hide()
-        self.status = label("", "caption")
-        lay.addLayout(hbox(self.add_btn, self.tidy_btn, self.undo_btn, self.redo_btn, None, self.error, self.status,
-                           self.zoom_out_btn, self.zoom_label, self.zoom_in_btn, self.fit_btn))
+        self.status = label("", "caption", wrap=True)
+        lay.addLayout(flow(self.add_btn, self.tidy_btn, self.undo_btn, self.redo_btn, None, self.error, self.status,
+                           hbox(self.zoom_out_btn, self.zoom_label, self.zoom_in_btn, self.fit_btn)))
 
         self.canvas = Canvas(backdrop=False)
         self.scene = NodeCanvasScene(self)

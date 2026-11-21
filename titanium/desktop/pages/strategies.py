@@ -21,7 +21,7 @@ from ...core.strategy_code import import_python
 from ..design import icons, theme
 from ..design import tokens as T
 from ..design.components import EmptyState, RunButton, Segmented, badge, button, hbox
-from ..views import View
+from ..views import PageStack, View
 from .patchbay import PatchBay
 from .run_view import RunView
 from .strategy_code import CodeView
@@ -48,7 +48,7 @@ class StrategyTab(QWidget):
         self.run_btn = RunButton("Run", "Ctrl ↵", "Run this strategy (Ctrl+Enter)")
         self.badge = badge("")
         lay.addLayout(hbox(self.switch, self.badge, None, self.run_btn))
-        self.views = QStackedWidget()
+        self.views = PageStack()
         for i, (name, icon, text) in enumerate(STRATEGY_VIEWS):
             if i == 0:
                 self.patch = PatchBay(graph, workspace)
@@ -129,7 +129,7 @@ class StrategiesView(View):
         self._n = itertools.count(1)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.pages = QStackedWidget()
+        self.pages = PageStack()
         lay.addWidget(self.pages)
 
         empty_wrap = QWidget()

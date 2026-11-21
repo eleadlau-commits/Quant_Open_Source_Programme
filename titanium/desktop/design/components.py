@@ -81,6 +81,136 @@ def hbox(*items, spacing: int = S["sm"], margins: int = 0) -> QHBoxLayout:
     return lay
 
 
+class FlowLayout(QLayout):
+    """A row that wraps onto more lines when it runs out of width, so toolbars and rows of
+    cards fit a small window. Items after ``split()`` sit on the right while the row fits on
+    one line (like an ``hbox`` stretch); once it wraps they flow on like the rest.
+    ``fill=True`` widens the items of each line to share its width (rows of tiles)."""
+
+    def __init__(self, parent=None, spacing: int = S["sm"], fill: bool = False):
+        super().__init__(parent)
+        self._items: list = []
+        self._split: int | None = None
+        self._fill = fill
+        self.setSpacing(spacing)
+        self.setContentsMargins(0, 0, 0, 0)
+
+    # QLayout API
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, i):
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i):
+        if 0 <= i < len(self._items):
+            if self._split is not None and i < self._split:
+                self._split -= 1
+            return self._items.pop(i)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._place(QRectF(0, 0, width, 0).toRect(), apply=False)
+
+    def sizeHint(self) -> QSize:
+        w = sum(self._hint(it).width() for it in self._visible()) + self.spacing() * max(0, len(self._visible()) - 1)
+        h = max((self._hint(it).height() for it in self._visible()), default=0)
+        m = self.contentsMargins()
+        return QSize(w + m.left() + m.right(), h + m.top() + m.bottom())
+
+    def minimumSize(self) -> QSize:
+        w = max((it.minimumSize().width() for it in self._visible()), default=0)
+        m = self.contentsMargins()
+        return QSize(w + m.left() + m.right(), self.heightForWidth(w + m.left() + m.right()))
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._place(rect, apply=True)
+
+    # helpers
+    def split(self) -> None:
+        """Items added from here on go on the right while the row fits on one line."""
+        self._split = len(self._items)
+
+    def _visible(self) -> list:
+        return [it for it in self._items if not (it.widget() is not None and it.widget().isHidden())]
+
+    @staticmethod
+    def _hint(item) -> QSize:
+        hint, low = item.sizeHint(), item.minimumSize()
+        return QSize(max(hint.width(), low.width()), max(hint.height(), low.height()))
+
+    def _place(self, rect, apply: bool) -> int:
+        m = self.contentsMargins()
+        x0, y, width = rect.x() + m.left(), rect.y() + m.top(), rect.width() - m.left() - m.right()
+        gap = self.spacing()
+        vis = self._visible()
+        lines: list[list] = [[]]
+        used = 0
+        def want(it) -> int:  # never wider than the row; wrapping labels shrink to it
+            return min(self._hint(it).width(), max(width, it.minimumSize().width()))
+
+        for it in vis:
+            w = want(it)
+            if lines[-1] and used + gap + w > width:
+                lines.append([])
+                used = 0
+            used += (gap if lines[-1] else 0) + w
+            lines[-1].append(it)
+        split_at = self._items[self._split] if self._split is not None and self._split < len(self._items) else None
+        for line in lines:
+            if not line:
+                continue
+            widths = [want(it) for it in line]
+            spare = max(0, width - sum(widths) - gap * (len(line) - 1))
+            if self._fill:
+                widths = [w + spare // len(line) for w in widths]
+                spare = 0
+            def tall(it, w) -> int:
+                return it.heightForWidth(w) if it.hasHeightForWidth() else self._hint(it).height()
+
+            heights = [tall(it, w) for it, w in zip(line, widths)]
+            height = max(heights)
+            x = x0
+            for it, w, ih in zip(line, widths, heights):
+                if len(lines) == 1 and it is split_at:
+                    x += spare
+                if apply:
+                    grows = it.widget() is None or it.widget().sizePolicy().verticalPolicy() in (
+                        QSizePolicy.Expanding, QSizePolicy.MinimumExpanding, QSizePolicy.Preferred,
+                        QSizePolicy.Minimum, QSizePolicy.Ignored)
+                    h = height if grows else ih
+                    it.setGeometry(QRectF(x, y + (height - h) / 2, w, h).toRect())
+                x += w + gap
+            y += height + gap
+        return y - gap - rect.y() + m.bottom() if vis else 0
+
+
+def flow(*items, spacing: int = S["sm"], fill: bool = False) -> FlowLayout:
+    """Like ``hbox`` but wraps when short of width. A ``None`` among the items puts what
+    follows on the right while everything fits on one line."""
+    lay = FlowLayout(spacing=spacing, fill=fill)
+    for it in items:
+        if it is None:
+            lay.split()
+        elif isinstance(it, QWidget):
+            lay.addWidget(it)
+        else:
+            holder = QWidget()
+            holder.setLayout(it)
+            lay.addWidget(holder)
+    return lay
+
+
 class Card(QFrame):
     """A surface with an optional title row. ``accent``: brand, success, danger."""
 
@@ -151,7 +281,8 @@ class EmptyState(QFrame):
         lay.addWidget(t)
         body = label(text, "muted", wrap=True)
         body.setAlignment(Qt.AlignCenter)
-        body.setFixedWidth(480)
+        body.setMinimumWidth(240)
+        body.setMaximumWidth(480)
         lay.addLayout(hbox(None, body, None))
         if actions:
             lay.addSpacing(S["sm"])

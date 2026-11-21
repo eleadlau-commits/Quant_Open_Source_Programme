@@ -18,6 +18,7 @@ from ...core.strategy import graph_to_dict
 from ..backtest_queue import BacktestQueue
 from ..design import tokens as T
 from ..design.components import (
+    flow,
     Card, DataTable, Details, Dialog, EmptyState, ParamForm, StatTile, Switch, VerdictCard, button, hbox, label,
 )
 from ._base import PageView
@@ -53,6 +54,7 @@ class BacktestsView(PageView):
     title = "Backtests"
     icon = "backtests"
     order = 40
+    scroll = True  # a short window scrolls the page rather than cutting it off
     background = True  # run tests on a worker thread (tests turn this off)
 
     def __init__(self, app_ctx=None, parent=None):
@@ -79,17 +81,18 @@ class BacktestsView(PageView):
         self.run.setMinimumWidth(240)
         self.run.setToolTip("Which run of it: the latest by default")
         self.run.currentIndexChanged.connect(lambda _i: self.refresh())
-        self.status = label("", "caption")
-        self.column.addLayout(hbox(label("STRATEGY", "overline"), self.strategy, label("RUN", "overline"), self.run,
-                                   self.status, None, spacing=S["md"]))
+        self.status = label("", "caption", wrap=True)
+        self.column.addLayout(flow(hbox(label("STRATEGY", "overline"), self.strategy, spacing=S["md"]),
+                                   hbox(label("RUN", "overline"), self.run, spacing=S["md"]),
+                                   self.status, spacing=S["md"]))
 
         # a summary of the verdicts
         self.tiles = {}
-        tiles = hbox(spacing=S["md"])
+        tiles = flow(spacing=S["md"], fill=True)
         for key, caption in (("pass", "Passed"), ("fail", "Failed"), ("na", "Could not judge"), ("todo", "Not run")):
             t = StatTile(caption, "–")
             self.tiles[key] = t
-            tiles.addWidget(t, 1)
+            tiles.addWidget(t)
         self.column.addLayout(tiles)
 
         split = QSplitter(Qt.Vertical)

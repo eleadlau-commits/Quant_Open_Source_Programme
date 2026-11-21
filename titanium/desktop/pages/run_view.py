@@ -10,8 +10,8 @@ from __future__ import annotations
 import time
 from datetime import timezone
 
-from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QGridLayout, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import QCheckBox, QComboBox, QGridLayout, QScrollArea, QVBoxLayout, QWidget
 
 from ...core import measurements as M
 from ...core.baseline import DEFAULT_NAME
@@ -24,6 +24,7 @@ from ..backtest_queue import BacktestQueue
 from ..design import tokens as T
 from ..design.chart import MAIN, RIGHT, SUB, ChartMarker, ChartSeries, TimeChart
 from ..design.components import (
+    flow,
     Card, Segmented, StatTile, VerdictCard, button, hbox, label,
 )
 
@@ -70,31 +71,41 @@ class RunView(QWidget):
         self._pending = False  # a rerun asked for while one is running
         self._started = 0.0
 
-        lay = QVBoxLayout(self)
+        # everything scrolls up and down, so a short window never cuts the view off
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QScrollArea.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        area.setWidget(inner)
+        outer.addWidget(area)
+        lay = QVBoxLayout(inner)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(S["lg"])
 
         # dataset and status
         self.dataset = QComboBox()
-        self.dataset.setMinimumWidth(260)
+        self.dataset.setMinimumWidth(200)
         self.dataset.setToolTip("The dataset this strategy trades")
         self.dataset.activated.connect(self._pick_dataset)
-        self.status = label("Not run yet. Press Run or Ctrl+Enter.", "caption")
+        self.status = label("Not run yet. Press Run or Ctrl+Enter.", "caption", wrap=True)
         self.knobs_btn = button("Knobs", "ghost", "knob", "Show the Knobs panel: turn one and the strategy runs again")
         self.knobs_btn.clicked.connect(lambda: self._show("knobs"))
         self.log_btn = button("Trade log", "ghost", "list", "Show the trade log")
         self.log_btn.clicked.connect(lambda: self._show("trade_log"))
-        lay.addLayout(hbox(label("DATASET", "overline"), self.dataset, self.status, None, self.knobs_btn,
+        lay.addLayout(flow(label("DATASET", "overline"), self.dataset, self.status, None, self.knobs_btn,
                            self.log_btn, spacing=S["md"]))
 
         # stat tiles
         self.tiles: dict[str, StatTile] = {}
-        tiles = hbox(spacing=S["md"])
+        tiles = flow(spacing=S["md"], fill=True)
         for mid, caption in (("total_profit", "Profit"), ("sharpe", "Sharpe"), ("max_drawdown", "Max drawdown"),
                              ("hit_rate", "Hit rate"), ("avg_exposure", "Exposure")):
             t = StatTile(caption, "–", " ")
             self.tiles[mid] = t
-            tiles.addWidget(t, 1)
+            tiles.addWidget(t)
         lay.addLayout(tiles)
 
         # chart and its pickers
@@ -114,8 +125,8 @@ class RunView(QWidget):
         self.show_default = QCheckBox(DEFAULT_NAME)
         self.show_default.setChecked(True)
         self.show_default.setToolTip("The yardstick: equal weight in everything in the dataset, on the same costs")
-        chart_card.body.addLayout(hbox(self.main_pick, self.display, self.show_default, None,
-                                       label("Add", "caption"), self.local_pick, self.overlay, spacing=S["sm"]))
+        chart_card.body.addLayout(flow(self.main_pick, self.display, self.show_default, None,
+                                       hbox(label("Add", "caption"), self.local_pick, self.overlay), spacing=S["sm"]))
         self.chart = TimeChart()
         self.chart.empty_text = "Run the strategy (Ctrl+Enter) to see it here"
         self.chart.setMinimumHeight(300)
@@ -128,7 +139,9 @@ class RunView(QWidget):
         self.backtest_card = Card()
         self.backtest_buttons = {}
         self.bt_status = label("Does the result hold up? Run the strategy, then test it.", "caption")
-        row = hbox(label("BACKTESTS", "overline"), self.bt_status, None)
+        self.bt_status.setWordWrap(True)
+        self.backtest_card.body.addLayout(hbox(label("BACKTESTS", "overline"), self.bt_status))
+        row = flow()
         for bid, name, tip in BACKTESTS:
             b = button(name, tip=tip)
             b.setEnabled(False)

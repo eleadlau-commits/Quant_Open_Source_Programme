@@ -15,7 +15,7 @@ from ...core.module_library import add_to_graph, folders
 from ...core.strategy import StrategyGraph, graph_to_dict
 from ...core.strategy_code import StrategyCodeError, generate, make_knob, update_from_code
 from ..design import tokens as T
-from ..design.components import CodeEditor, badge, button, hbox, label
+from ..design.components import CodeEditor, badge, button, flow, hbox, label
 
 S = T.SPACE
 PARSE_DELAY_MS = 400
@@ -39,10 +39,10 @@ class CodeView(QWidget):
         self.knob_btn.clicked.connect(self.make_knob)
         self.add_btn = button("Add module", "ghost", "module", "Add a module from the module library")
         self.add_btn.setMenu(self._module_menu())
-        self.status = label("", "caption")
+        self.status = label("", "caption", wrap=True)
         self.error = badge("", "danger")
         self.error.hide()
-        lay.addLayout(hbox(self.knob_btn, self.add_btn, None, self.error, self.status))
+        lay.addLayout(flow(self.knob_btn, self.add_btn, None, self.error, self.status))
         self.editor = CodeEditor()
         self.editor.setPlainText(generate(graph))
         self._mine = graph_to_dict(graph)

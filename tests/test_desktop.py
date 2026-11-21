@@ -294,3 +294,26 @@ def test_self_test_visits_every_view_and_runs_a_strategy(win):
 
     win.show()
     assert self_test(win) == []
+
+
+def test_every_page_fits_a_small_screen(win, qapp):
+    """A laptop at 150% scaling with the taskbar on the side gives about 1,230 x 760 points.
+    Every page, and the Strategies page with its docks and an open strategy, must fit."""
+    from titanium.core.module_library import momentum_rotation
+
+    win.show()
+    for view_id, host in win.hosts.items():
+        if host == "page":
+            win.show_page(view_id)
+            qapp.processEvents()
+            hint = win.minimumSizeHint()
+            assert hint.width() <= 1150 and hint.height() <= 760, (view_id, hint)
+    win.show_page("strategies")
+    sv = win.views["strategies"]
+    sv.open_graph(momentum_rotation(id="S1"))
+    tab = sv.tabs.currentWidget()
+    for i in range(3):
+        tab._switch_to(i)
+        qapp.processEvents()
+        hint = win.minimumSizeHint()
+        assert hint.width() <= 1150 and hint.height() <= 760, (i, hint)

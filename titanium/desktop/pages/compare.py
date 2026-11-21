@@ -21,7 +21,7 @@ from ...core.measurements import Scope, measurements
 from .. import tasks
 from ..design import tokens as T
 from ..design.chart import ChartSeries, TimeChart
-from ..design.components import Card, DataTable, Dialog, EmptyState, Segmented, button, hbox, label
+from ..design.components import Card, DataTable, Dialog, EmptyState, Segmented, button, flow, hbox, label
 from ._base import PageView
 
 S = T.SPACE
@@ -105,6 +105,7 @@ class CompareView(PageView):
     title = "Compare"
     icon = "compare"
     order = 30
+    scroll = True  # a short window scrolls the page rather than cutting it off
     background = True  # run missing default strategies on a worker thread (tests turn this off)
 
     def __init__(self, app_ctx=None, parent=None):
@@ -125,7 +126,7 @@ class CompareView(PageView):
 
         # what is compared
         pick = Card("Runs", "Tick a strategy for its latest run, or open it for earlier ones.")
-        pick.setMinimumWidth(260)
+        pick.setMinimumWidth(220)
         pick.setMaximumWidth(340)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
@@ -159,13 +160,13 @@ class CompareView(PageView):
         zout = button("−", "ghost", tip="Zoom out")
         zin.clicked.connect(lambda: self.chart.zoom(0.5))
         zout.clicked.connect(lambda: self.chart.zoom(2.0))
-        chart_card.body.addLayout(hbox(self.tabs, None, self.frame, zin, zout, spacing=S["sm"]))
+        chart_card.body.addLayout(flow(self.tabs, None, hbox(self.frame, zin, zout, spacing=S["sm"]), spacing=S["sm"]))
         self.chart = TimeChart()
         self.chart.empty_text = "Run a strategy and tick it to compare it here"
         self.chart.setMinimumHeight(320)
         self.chart.view_changed.connect(self._view_changed)
         chart_card.body.addWidget(self.chart, 1)
-        self.window_note = label("", "caption")
+        self.window_note = label("", "caption", wrap=True)
         chart_card.body.addWidget(self.window_note)
         grid.addWidget(chart_card, 0, 1)
 

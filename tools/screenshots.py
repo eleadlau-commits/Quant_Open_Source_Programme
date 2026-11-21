@@ -27,6 +27,10 @@ from titanium.desktop.design import skins, theme  # noqa: E402
 from titanium.desktop.design.gallery import build as build_gallery  # noqa: E402
 
 
+# window size for the shots; TITANIUM_SHOT_SIZE=1150x720 checks a small screen
+SIZE = tuple(int(n) for n in os.environ.get("TITANIUM_SHOT_SIZE", "1440x900").split("x"))
+
+
 def settle(app, n=30):
     for _ in range(n):
         app.processEvents()
@@ -65,7 +69,7 @@ def shoot_run(app, tmp: Path, sample: Path, out: Path, mode: str) -> None:
     info = next(i for i in ws.datasets.infos("core") if i.name.startswith("Synthetic stocks (10"))
     ctx = AppContext(QSettings(str(tmp / "s3.ini"), QSettings.IniFormat), ws)
     win = build_window(ctx)
-    win.resize(1440, 900)
+    win.resize(*SIZE)
     win.show()
     win.show_page("strategies")
     g = momentum_rotation(id="S1")
@@ -87,7 +91,7 @@ def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             ctx = AppContext(QSettings(str(Path(tmp) / "s.ini"), QSettings.IniFormat))
             win = build_window(ctx)
-            win.resize(1440, 900)
+            win.resize(*SIZE)
             win.show()
             settle(app)
             for page in ("data", "strategies", "compare", "backtests", "settings"):
@@ -115,7 +119,7 @@ def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
                 ws.strategies.put("gap-fade", StrategyGraph("gap-fade", "Gap fade"))
                 ctx = AppContext(QSettings(str(Path(tmp) / "s2.ini"), QSettings.IniFormat), ws)
                 win = build_window(ctx)
-                win.resize(1440, 900)
+                win.resize(*SIZE)
                 win.show()
                 win.show_page("data")
                 settle(app)
@@ -163,7 +167,7 @@ def shoot_compare_backtests(app, tmp: Path, sample: Path, out: Path, mode: str) 
     ws = tested_workspace(sample)
     ctx = AppContext(QSettings(str(tmp / "s4.ini"), QSettings.IniFormat), ws)
     win = build_window(ctx)
-    win.resize(1440, 900)
+    win.resize(*SIZE)
     win.show()
     win.show_page("compare")
     settle(app)
@@ -184,7 +188,7 @@ def shoot_patch_bay(app, tmp: Path, out: Path, mode: str) -> None:
     ws.modules.copy_to(f"{STARTER}/Momentum", "My signals")
     ctx = AppContext(QSettings(str(tmp / "s3.ini"), QSettings.IniFormat), ws)
     win = build_window(ctx)
-    win.resize(1440, 900)
+    win.resize(*SIZE)
     win.show()
     win.show_page("strategies")
     view = win.views["strategies"]
