@@ -198,6 +198,10 @@ QLabel[role="caption"] {{ font-size: {ty.caption}px; color: {c['text_muted']}; }
 QLabel[role="overline"] {{ font-size: {ty.caption}px; font-weight: 600; color: {c['text_faint']};
             letter-spacing: {1.2 if fx.numbers == "mono" else 0.6}px; }}
 QLabel[role="stat"] {{ font-size: {ty.heading}px; {stat_family} }}
+QLabel[role="mono"] {{ font-family: "{_family(sk.mono_fonts)}"; font-size: {ty.label}px; }}
+QLabel[role="error"] {{ color: {c['danger']}; }}
+QLabel[role="key"] {{ font-size: {ty.caption}px; font-weight: 600; color: {c['text_faint']};
+            letter-spacing: {1.2 if fx.numbers == "mono" else 0.6}px; }}
 
 /* ---- cards ---- */
 QFrame[card="true"] {{ background: {panel}; border: 1px solid {c['border']}; {edge} border-radius: {r['lg']}px; }}

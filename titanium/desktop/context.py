@@ -20,4 +20,6 @@ class AppContext:
 
     @classmethod
     def default(cls) -> "AppContext":
-        return cls(QSettings("Titanium", "Titanium"))
+        from ..app.paths import app_folder
+
+        return cls(QSettings("Titanium", "Titanium"), Workspace(data_root=app_folder() / "data"))
