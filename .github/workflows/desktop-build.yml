@@ -69,6 +69,7 @@ jobs:
           $p = Start-Process dist\TitaniumSetup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/TYPE=system","/DIR=C:\ti_system" -Wait -PassThru
           if (Test-Path C:\ti_system\install.log) { Get-Content C:\ti_system\install.log -Tail 5 }
           if ($p.ExitCode -ne 0) { exit 1 }
+          & C:\ti_system\.venv\Scripts\python.exe -VV
           $env:TITANIUM_HOME = "$PWD\home_system"
           $env:TITANIUM_SELFTEST_OUT = "$PWD\system.txt"
           $p = Start-Process C:\ti_system\.venv\Scripts\python.exe -ArgumentList "-m","titanium.desktop","--self-test" -WorkingDirectory C:\ti_system -Wait -PassThru

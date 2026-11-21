@@ -95,7 +95,9 @@ end;
 
 function FindPython(): Boolean;
 begin
-  Result := TryPython('py', '-3') or TryPython('python', '') or TryPython('python3', '');
+  // Prefer released versions the app's wheels are known to support, then whatever is newest.
+  Result := TryPython('py', '-3.13') or TryPython('py', '-3.12') or TryPython('py', '-3.11') or
+            TryPython('py', '-3') or TryPython('python', '') or TryPython('python3', '');
 end;
 
 function NoPythonMessage(): String;
