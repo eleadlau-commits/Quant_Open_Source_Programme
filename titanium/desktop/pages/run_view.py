@@ -20,10 +20,11 @@ from ...core.measurements import Profit, Scope
 from ...core.run import RunRecord
 from ...core.strategy import StrategyGraph
 from .. import tasks
+from ..backtest_queue import BacktestQueue
 from ..design import tokens as T
 from ..design.chart import MAIN, RIGHT, SUB, ChartMarker, ChartSeries, TimeChart
 from ..design.components import (
-    Card, Segmented, StatTile, button, hbox, label,
+    Card, Segmented, StatTile, VerdictCard, button, hbox, label,
 )
 
 S = T.SPACE
@@ -31,10 +32,11 @@ PROFIT_DISPLAYS = ("growth", "%", "currency")
 MAX_LOCAL = 8  # local series drawn at once (the largest ones)
 RERUN_DELAY_MS = 350
 # Phase 2F wires these up
-BACKTESTS = (("out_of_sample", "Out of sample", "Hold back the last part of the data and see if the edge survives"),
-             ("costs_x2", "Double costs", "Run again with every cost doubled"),
-             ("random", "Random entries", "Compare with random trades of the same size and count"),
-             ("walk_forward", "Walk forward", "Re-fit the knobs on rolling windows"))
+# the quick tests in the backtest block: ids in Library.BACKTESTS (the honest-tests plugin)
+BACKTESTS = (("out_of_sample", "Out-of-sample", "Choose the knobs on the early part, score the later part it never saw"),
+             ("cost_stress", "Cost stress", "Run again with every cost doubled"),
+             ("random_baseline", "Random baseline", "Same timing, weights and holding periods, names picked at random"),
+             ("walk_forward", "Walk-forward", "Re-choose the knobs before each stretch and score only what follows"))
 
 
 def _pct(v: float | None, signed: bool = True) -> str:
@@ -122,17 +124,35 @@ class RunView(QWidget):
         chart_card.body.addWidget(self.chart_note)
         body.addWidget(chart_card, 0, 0)
 
-        # backtests (Phase 2F wires the buttons up)
+        # backtests: quick tests on the last run; every test is on the Backtests page
         self.backtest_card = Card()
         self.backtest_buttons = {}
-        row = hbox(label("BACKTESTS", "overline"),
-                   label("Does the result hold up? These arrive in the next update.", "caption"), None)
+        self.bt_status = label("Does the result hold up? Run the strategy, then test it.", "caption")
+        row = hbox(label("BACKTESTS", "overline"), self.bt_status, None)
         for bid, name, tip in BACKTESTS:
             b = button(name, tip=tip)
             b.setEnabled(False)
+            b.clicked.connect(lambda _=False, bid=bid: self.run_backtests([bid]))
             self.backtest_buttons[bid] = b
             row.addWidget(b)
+        self.all_tests = button("All tests", "ghost", "backtests", "Open the Backtests page: every test, run one or all")
+        self.all_tests.clicked.connect(lambda: self._show("backtests"))
+        row.addWidget(self.all_tests)
         self.backtest_card.body.addLayout(row)
+        self.verdicts = QGridLayout()
+        self.verdicts.setHorizontalSpacing(S["md"])
+        self.verdicts.setVerticalSpacing(S["sm"])
+        self.verdicts.setColumnStretch(0, 1)
+        self.verdicts.setColumnStretch(1, 1)
+        self.backtest_card.body.addLayout(self.verdicts)
+        self._verdict_cards: list = []
+        self.bt_queue = None
+        if workspace is not None:
+            self.bt_queue = BacktestQueue(workspace, self)
+            self.bt_queue.started.connect(self._bt_started)
+            self.bt_queue.progress.connect(self._bt_progress)
+            self.bt_queue.result.connect(lambda _r: self._show_verdicts())
+            self.bt_queue.idle.connect(self._bt_idle)
         body.addWidget(self.backtest_card, 1, 0)
         body.setRowStretch(0, 1)
         lay.addLayout(body, 1)
@@ -307,6 +327,7 @@ class RunView(QWidget):
             self._say("Cancelled.")
             return
         self.record = record
+        self._show_verdicts()
         n = len(record.trades)
         self._say(f"{len(record.states)} steps, {n} trade{'s' * (n != 1)}, {took:.1f} s")
         self.baseline = self.workspace.runs.baseline_for(record)
@@ -327,6 +348,55 @@ class RunView(QWidget):
         self._end()
         self._pending = False
         self._say(f"The run failed: {e}", error=True)
+
+    # ---- backtests ----------------------------------------------------------------------
+    def run_backtests(self, test_ids: list[str]) -> None:
+        """Run tests on the last finished run (``workspace.backtests``), one after another off the UI thread."""
+        if self.bt_queue is None or self.record is None:
+            return
+        self.bt_queue.background = self.background
+        self.bt_queue.start(self.record.id, test_ids)
+        self._show_verdicts()
+
+    def _bt_started(self, _run_id: str, test_id: str, pos: int, total: int) -> None:
+        name = dict((b, n) for b, n, _t in BACKTESTS).get(test_id, test_id)
+        self.bt_status.setText(f"Running {name}" + (f" ({pos} of {total})" if total > 1 else ""))
+        self._show_verdicts()
+
+    def _bt_progress(self, _test_id: str, fraction: float) -> None:
+        text = self.bt_status.text().split(" · ")[0]
+        if text.startswith("Running"):
+            self.bt_status.setText(f"{text} · {int(fraction * 100)}%")
+
+    def _bt_idle(self) -> None:
+        self.bt_status.setText("A pass means it survived that test, never that it will make money.")
+        self._show_verdicts()
+
+    def _show_verdicts(self) -> None:
+        """The results of tests run on the last run (from here or from the Backtests page)."""
+        for c in self._verdict_cards:
+            c.hide()
+            c.setParent(None)
+            c.deleteLater()
+        self._verdict_cards = []
+        busy = self.bt_queue is not None and self.bt_queue.running
+        for b in self.backtest_buttons.values():
+            b.setEnabled(self.record is not None and not busy)
+        if self.record is None or self.workspace is None:
+            return
+        results = self.workspace.backtests.results(self.record.id)
+        order = [b for b, _n, _t in BACKTESTS] + sorted(set(results) - {b for b, _n, _t in BACKTESTS})
+        n = 0
+        for tid in order:
+            r = results.get(tid)
+            if r is None:
+                continue
+            card = VerdictCard(r.name, r.outcome, r.verdict.headline, r.verdict.explanation,
+                               r.verdict.details.get("figures"))
+            card.set_folded(True)
+            self.verdicts.addWidget(card, n // 2, n % 2)
+            self._verdict_cards.append(card)
+            n += 1
 
     def _say(self, text: str, error: bool = False) -> None:
         self.status.setText(text)

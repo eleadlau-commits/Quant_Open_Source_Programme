@@ -18,6 +18,9 @@ and adds entries through the :class:`~titanium.app.plugins.PluginContext` it is 
 The ready-made pieces the app ships with (its sources, generators and starter
 modules) are here too, so the built-in plugins follow the same rule as yours.
 """
+from .core.backtests import (BacktestContext, BacktestInfo, RandomPicks, Variant, Verdict, aligned_returns,
+                             ingredients, knob_variants, mean, sharpe, split_time, stdev, step_returns,
+                             steps_per_year, t_stat, total_growth, without)
 from .core.bars import MarketData
 from .core.data import DataKind, DatasetInfo, Frequency, Param, SourceSpec
 from .core.generators import BUILTIN_GENERATORS, RealisedVolatility
@@ -34,4 +37,8 @@ __all__ = [
     # what ships with the app
     "SyntheticStocks", "SyntheticFutures", "Polygon", "Databento", "RealisedVolatility",
     "BUILTIN_GENERATORS", "STARTERS",
+    # backtests: what a test receives and returns, and helpers
+    "BacktestContext", "BacktestInfo", "Verdict", "Variant", "RandomPicks", "aligned_returns", "ingredients",
+    "knob_variants", "mean", "sharpe", "split_time", "stdev", "step_returns", "steps_per_year", "t_stat",
+    "total_growth", "without",
 ]

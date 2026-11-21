@@ -450,17 +450,25 @@ class TimeChart(Canvas):
         p.drawText(QRectF(x, y, 140, 16), Qt.AlignLeft | Qt.AlignVCenter, stamp)
         x += p.fontMetrics().horizontalAdvance(stamp) + 18
         ui = theme.ui_font(T.TYPE.caption)
-        for s in self.series[:8]:
+        p.setFont(ui)
+        fm = p.fontMetrics()
+        right = self.width() - 8
+        for i, s in enumerate(self.series):
             v = s.at(at)
             fmt = self.formats[RIGHT if s.axis == RIGHT else s.panel]
             text = f"{s.name}  {fmt(v) if v is not None else '–'}"
+            w = fm.horizontalAdvance(text)
+            rest = len(self.series) - i - 1
+            more = f"+{rest} more" if rest else ""
+            need = 12 + w + (16 + fm.horizontalAdvance(more) if more else 0)
+            if x + need > right:  # no room: say how many are left out (they are in the crosshair dots)
+                more = f"+{len(self.series) - i} more"
+                p.setPen(theme.qcolor(pal.text_muted))
+                p.drawText(QRectF(x, y, fm.horizontalAdvance(more) + 4, 16), Qt.AlignLeft | Qt.AlignVCenter, more)
+                break
             p.setPen(Qt.NoPen)
             p.setBrush(colors[id(s)])
             p.drawRoundedRect(QRectF(x, y + 5, 8, 6 if not s.dashed else 2), 1, 1)
-            p.setFont(ui)
             p.setPen(theme.qcolor(pal.text))
-            w = p.fontMetrics().horizontalAdvance(text)
-            if x + 12 + w > self.width() - 8:
-                break
             p.drawText(QRectF(x + 12, y, w + 4, 16), Qt.AlignLeft | Qt.AlignVCenter, text)
             x += 12 + w + 16
