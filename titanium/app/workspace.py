@@ -7,10 +7,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core.module_library import register_starters
 from ..core.plugins import Registry
 from ..core.run import RunRecord
 from ..core.strategy import StrategyGraph
 from .collection import Collection
+from .events import Event
 from .datasets import DatasetService
 
 __all__ = ["Collection", "DatasetService", "Workspace"]
@@ -22,12 +24,22 @@ class Workspace:
     """
 
     def __init__(self, registry: Registry | None = None, data_root: Path | str | None = None) -> None:
-        self.registry = registry or Registry()
+        if registry is None:
+            registry = Registry()
+            register_starters(registry)
+        self.registry = registry
         self.datasets = DatasetService(self.registry, data_root)
         self.strategies: Collection[StrategyGraph] = Collection()
         self.runs: Collection[RunRecord] = Collection()
         self.strategies.added.connect(self._strategy_changed)
         self.strategies.changed.connect(self._strategy_changed)
+        self.focused_strategy: str | None = None  # the strategy whose tab is in front
+        self.strategy_focused = Event()  # (id or None,)
+
+    def focus_strategy(self, id: str | None) -> None:
+        if id != self.focused_strategy:
+            self.focused_strategy = id
+            self.strategy_focused.emit(id)
 
     def _strategy_changed(self, strategy_id: str, graph: StrategyGraph) -> None:
         """A strategy lists the datasets it uses in ``settings["datasets"]``; keep ``used_by`` in step."""

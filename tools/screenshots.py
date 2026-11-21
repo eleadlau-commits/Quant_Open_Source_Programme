@@ -73,6 +73,13 @@ def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
             win.views["strategies"].new_strategy()
             settle(app)
             win.grab().save(str(out / f"strategy-tab-{mode}.png"))
+            from titanium.core.module_library import momentum_rotation
+
+            view = win.views["strategies"]
+            view.open_graph(momentum_rotation(id="S2"), view=1)
+            view.tabs.currentWidget().code.editor.setFocus()
+            settle(app)
+            win.grab().save(str(out / f"strategy-code-{mode}.png"))
             win.close()
             if sample is not None:
                 ws = Workspace(data_root=sample)

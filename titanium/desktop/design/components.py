@@ -619,3 +619,7 @@ class Dialog(QDialog):
         self.status.setText(text if busy else "")
         if busy:
             self.set_error("")
+
+
+# Code and knobs live in their own file; they are part of the kit all the same.
+from .code_editor import CodeEditor, KnobControl  # noqa: E402,F401
