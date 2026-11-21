@@ -20,6 +20,7 @@ from ...core.measurements import Profit, Scope
 from ...core.run import RunRecord
 from ...core.strategy import StrategyGraph
 from .. import tasks
+from .run_settings import RunSettings, resolve, summary
 from ..backtest_queue import BacktestQueue
 from ..design import tokens as T
 from ..design.chart import MAIN, RIGHT, SUB, ChartMarker, ChartSeries, TimeChart
@@ -95,8 +96,23 @@ class RunView(QWidget):
         self.knobs_btn.clicked.connect(lambda: self._show("knobs"))
         self.log_btn = button("Trade log", "ghost", "list", "Show the trade log")
         self.log_btn.clicked.connect(lambda: self._show("trade_log"))
-        lay.addLayout(flow(label("DATASET", "overline"), self.dataset, self.status, None, self.knobs_btn,
-                           self.log_btn, spacing=S["md"]))
+        self.settings_btn = button("Run settings", "ghost", "settings",
+                                   "Market, trading hours, decision time, capital and costs for this strategy")
+        self.settings_btn.setCheckable(True)
+        self.market_line = label("", "caption", wrap=True)
+        self.market_line.setToolTip("The market this strategy trades, the hours it trades and when it decides")
+        lay.addLayout(flow(label("DATASET", "overline"), self.dataset, None, self.settings_btn,
+                           self.knobs_btn, self.log_btn, spacing=S["md"]))
+        lines = QVBoxLayout()
+        lines.setSpacing(S["xxs"])
+        lines.addWidget(self.market_line)
+        lines.addWidget(self.status)
+        lay.addLayout(lines)
+        self.settings_card = RunSettings()
+        self.settings_card.hide()
+        self.settings_btn.toggled.connect(self.settings_card.setVisible)
+        self.settings_card.changed.connect(self._settings_changed)
+        lay.addWidget(self.settings_card)
 
         # stat tiles
         self.tiles: dict[str, StatTile] = {}
@@ -184,6 +200,8 @@ class RunView(QWidget):
         if workspace is not None:
             workspace.datasets.added.connect(self._datasets_changed)
             workspace.datasets.removed.connect(self._datasets_changed)
+            workspace.run_defaults_changed.connect(self._defaults_changed)
+            workspace.market_defaults_changed.connect(self._defaults_changed)
         self._fill_datasets()
         self.set_graph(graph)
         self.redraw()
@@ -199,6 +217,8 @@ class RunView(QWidget):
         if self.workspace is not None:
             self.workspace.datasets.added.disconnect(self._datasets_changed)
             self.workspace.datasets.removed.disconnect(self._datasets_changed)
+            self.workspace.run_defaults_changed.disconnect(self._defaults_changed)
+            self.workspace.market_defaults_changed.disconnect(self._defaults_changed)
 
     # ---- pickers ----------------------------------------------------------------------
     def _measurements(self, kind: str, scope: Scope | None = None) -> list:
@@ -257,8 +277,24 @@ class RunView(QWidget):
         old = self.record.strategy_snapshot.get("knob_values") if self.record else None
         self.graph = graph
         self._show_dataset()
+        self._show_settings()
         if self.record is not None and old is not None and dict(graph.knob_values) != dict(old):
             self._timer.start()  # a knob was turned: run again once it settles
+
+    def _show_settings(self) -> None:
+        """The market line and the Run settings panel, for the settings the next run will use."""
+        self.settings_card.set_strategy(self.workspace, self.graph)
+        market, _layers, cfg = resolve(self.workspace, self.graph)
+        self.market_line.setText(f"Next run: {summary(market, cfg)}")
+
+    def _defaults_changed(self, *_):
+        self._show_settings()
+
+    def _settings_changed(self) -> None:
+        if self.workspace is None:
+            self._show_settings()
+        if self.record is not None and not self.running:
+            self._say("Settings changed. Run again (Ctrl+Enter) to see the result.")
 
     def turn(self, key: str, value) -> None:
         """Set a knob (as the Knobs dock does): the change comes back through ``set_graph``."""
@@ -342,7 +378,10 @@ class RunView(QWidget):
         self.record = record
         self._show_verdicts()
         n = len(record.trades)
-        self._say(f"{len(record.states)} steps, {n} trade{'s' * (n != 1)}, {took:.1f} s")
+        market = (self.workspace.markets().get(record.market) if self.workspace is not None else None) \
+            or MARKETS.get(record.market)
+        where = f"{summary(market, record.settings)} · " if market is not None else ""
+        self._say(f"Last run: {where}{len(record.states)} steps, {n} trade{'s' * (n != 1)}, {took:.1f} s")
         self.baseline = self.workspace.runs.baseline_for(record)
         if self.baseline is None:
             bjob = self.workspace.runs.prepare_baseline(record)

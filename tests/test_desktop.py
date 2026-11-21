@@ -336,3 +336,39 @@ def test_every_page_fits_a_small_screen(win, qapp):
         qapp.processEvents()
         hint = win.minimumSizeHint()
         assert hint.width() <= 1150 and hint.height() <= 760, (i, hint)
+
+
+def test_first_launch_adds_samples_once(win, ctx, qapp):
+    from titanium.desktop.app import add_samples_on_first_launch
+
+    assert add_samples_on_first_launch(ctx, background=False)
+    assert len(ctx.workspace.datasets) == 2
+    view = win.views["data"]
+    assert view.samples_row.isVisibleTo(view)
+    assert not add_samples_on_first_launch(ctx, background=False)  # only the first time
+    view.remove_samples()
+    assert not len(ctx.workspace.datasets) and not view.samples_row.isVisibleTo(view)
+    assert not add_samples_on_first_launch(ctx, background=False)
+
+
+def test_panels_menu_shows_and_hides_docks_and_remembers(win, ctx, qapp):
+    from PySide6.QtCore import QSettings
+
+    from titanium.desktop.app import build_window
+    from titanium.desktop.context import AppContext
+
+    assert win.panels_button.parent() is win.rail
+    menu = win.panels_menu()
+    acts = {a.data(): a for a in menu.actions() if a.isCheckable()}
+    assert {"module_library", "knobs", "trade_log"} <= set(acts)
+    win.show_page("data")
+    win.docks["module_library"].hide_by_user()  # the close button
+    assert not win.panels_menu().actions()[[a.data() for a in win.panels_menu().actions()].index("module_library")].isChecked()
+    # a new window remembers it was closed
+    again = build_window(AppContext(QSettings(ctx.settings.fileName(), QSettings.IniFormat), ctx.workspace))
+    assert again.docks["module_library"].user_hidden
+    again.close()
+    # showing it from the menu goes to a page it belongs on
+    win.set_panel_shown("module_library", True)
+    assert win.current == "strategies" and win.docks["module_library"].isVisible()
+    assert "module_library" not in win._saved_hidden()

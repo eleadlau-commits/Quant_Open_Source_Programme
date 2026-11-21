@@ -237,3 +237,36 @@ def test_run_on_a_worker_thread_reports_progress(run_tab, qapp):
         QTest.qWait(10)
     assert rv.record is not None and rv.record.status == "done" and rv.baseline is not None
     assert seen[-1] == (False, "")
+
+
+def test_run_settings_show_where_each_value_comes_from_and_override_it(run_tab, qapp):
+    from titanium.core.markets import MarketDefaults
+
+    w, ws, tab = run_tab
+    rv = tab.run_view
+    use_dataset(ws)
+    card = rv.settings_card
+    assert rv.market_line.text().startswith("Next run: Nasdaq, regular hours (09:30–16:00), decides")
+    assert card.sources["capital"].text() == "App default"
+    assert card.sources["decide_at"].text() in ("Nasdaq default", "This strategy")
+    assert card.sources["costs.equity.slippage_bps"].text() == "Nasdaq default"
+    assert not card.editors["costs.futures.slippage_ticks"].isVisibleTo(card)  # Nasdaq lists stocks
+    assert not card.resets["costs.equity.slippage_bps"].isVisibleTo(card)
+    # a market edit reaches the panel
+    ws.set_market_defaults("xnas", MarketDefaults(slippage_bps=6))
+    assert card.editors["costs.equity.slippage_bps"].value() == 6
+    # override for this strategy only, then back to the default
+    card.editors["costs.equity.slippage_bps"].setValue(9)
+    g = ws.strategies.get("S1")
+    assert g.settings["costs"]["equity"]["slippage_bps"] == 9
+    assert card.sources["costs.equity.slippage_bps"].text() == "This strategy"
+    card.editors["extended_hours"].setChecked(True)
+    assert g.settings["extended_hours"] is True and "all sessions" in rv.market_line.text()
+    assert ws.runs.prepare("S1").settings["costs"]["equity"]["slippage_bps"] == 9
+    card.use_default("costs.equity.slippage_bps")
+    card.use_default("extended_hours")
+    assert "costs" not in g.settings and "extended_hours" not in g.settings
+    assert card.sources["costs.equity.slippage_bps"].text() == "Nasdaq default"
+    # the status line says which market and hours the run used
+    tab.run()
+    assert rv.status.text().startswith("Last run: Nasdaq, regular hours")

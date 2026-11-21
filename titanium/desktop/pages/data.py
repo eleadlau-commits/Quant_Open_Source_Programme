@@ -82,6 +82,12 @@ class DataView(PageView):
             self.market_filter.addItem(m.short, mid)
         self.market_filter.currentIndexChanged.connect(lambda _i: self.refresh())
         self.column.addLayout(hbox(self.filter, None, self.market_filter, self.search))
+        self.samples_row = QWidget()
+        self.samples_row.setLayout(hbox(
+            label("Sample datasets are here to try things with. Remove them when you have your own data.", "caption",
+                  wrap=True), None, self._remove_samples_button()))
+        self.samples_row.hide()
+        self.column.addWidget(self.samples_row)
 
         self.stack = PageStack()
         self.empty = EmptyState(
@@ -125,6 +131,16 @@ class DataView(PageView):
         b.clicked.connect(lambda: self.open_add())
         return b
 
+    def _remove_samples_button(self):
+        b = button("Remove samples", "ghost", "close", "Remove the sample datasets no strategy uses")
+        b.clicked.connect(self.remove_samples)
+        return b
+
+    def remove_samples(self) -> list[str]:
+        from ...app.samples import remove_samples
+
+        return remove_samples(self.service) if self.service is not None else []
+
     def _import_button(self):
         b = button("Import files", icon="import")
         b.clicked.connect(self.pick_files)
@@ -150,6 +166,7 @@ class DataView(PageView):
         for kind, n in self.service.counts().items():
             self.kind_counts[kind].setText(plural(n, "dataset"))
         items = self.visible()
+        self.samples_row.setVisible(any(i.sample for i in self.service.infos()))
         if not len(self.service):
             self.stack.setCurrentWidget(self.empty)
             return
