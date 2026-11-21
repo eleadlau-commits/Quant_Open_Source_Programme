@@ -287,3 +287,10 @@ def test_background_build_reports_errors(win, qapp):
         time.sleep(0.01)
     assert "no such file" in dlg.error.text()
     dlg.reject()
+
+
+def test_self_test_visits_every_view_and_runs_a_strategy(win):
+    from titanium.desktop.app import self_test
+
+    win.show()
+    assert self_test(win) == []
