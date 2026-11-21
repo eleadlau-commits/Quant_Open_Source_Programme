@@ -11,6 +11,7 @@ from ..core.measurements import register_measurements
 from ..core.module_library import load_library_folder
 from ..core.plugins import Registry
 from ..core.strategy import StrategyGraph
+from .backtests import BacktestResult, BacktestService
 from .collection import Collection
 from .events import Event
 from .datasets import DatasetService
@@ -19,7 +20,8 @@ from .runs import RunJob, RunService
 from .settings import RunDefaults
 from .module_folders import ModuleFolders
 
-__all__ = ["Collection", "DatasetService", "ModuleFolders", "RunDefaults", "RunJob", "RunService", "Workspace"]
+__all__ = ["BacktestResult", "BacktestService", "Collection", "DatasetService", "ModuleFolders", "RunDefaults", "RunJob",
+           "RunService", "Workspace"]
 
 
 class Workspace:
@@ -49,6 +51,7 @@ class Workspace:
         self.strategies: Collection[StrategyGraph] = Collection()
         self.runs = RunService(self.datasets, self.strategies)
         self.runs.defaults = lambda: self.run_defaults.engine_settings()
+        self.backtests = BacktestService(self.registry, self.runs, self.strategies)
         self.strategies.added.connect(self._strategy_changed)
         self.strategies.changed.connect(self._strategy_changed)
         self.focused_strategy: str | None = None  # the strategy whose tab is in front

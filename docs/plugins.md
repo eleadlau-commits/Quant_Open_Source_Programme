@@ -1,13 +1,14 @@
 # Plugins
 
 A plugin is a folder that adds entries to the app's libraries: data sources, generated
-data, modules, skins (and later measurements, backtests, brokers, views). Removing one
+data, modules, skins, measurements, backtests (and later brokers, views). Removing one
 never breaks the others.
 
 ## Where they come from
 
 - `titanium/plugins/builtin/`: the ones that ship with the app. `synthetic-data`,
-  `market-downloads`, `realised-volatility` and `starter-modules`. Each can be switched off.
+  `market-downloads`, `realised-volatility`, `starter-modules` and `honest-tests` (the
+  backtests, see `docs/backtests.md`). Each can be switched off.
   File import and the Graphite and Classic skins are part of the app, not plugins.
 - `Documents/Titanium/plugins/` (or `$TITANIUM_HOME/plugins`): yours, and the ones you
   import as `.tiplug` packs. On/off is remembered in `plugins.json` there.
@@ -57,7 +58,7 @@ def setup(plugin):
 ## The command line
 
 ```
-python -m titanium.plugins new my-source --adds data_sources   # modules, generators, skins
+python -m titanium.plugins new my-source --adds data_sources   # modules, generators, backtests, skins
 python -m titanium.plugins check my-source
 python -m titanium.plugins pack my-source
 python -m titanium.plugins install my-source-0.1.0.tiplug

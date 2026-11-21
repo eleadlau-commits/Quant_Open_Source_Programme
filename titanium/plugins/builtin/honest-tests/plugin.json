@@ -1,0 +1,11 @@
+{
+  "id": "honest-tests",
+  "name": "Honest tests",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Backtests that ask whether a result holds up: out-of-sample, walk-forward, bootstrap, deflated Sharpe, cost stress, random baseline, benchmark, parameter stability and ablation.",
+  "author": "Titanium",
+  "main": "plugin.py",
+  "provides": {"backtests": ["out_of_sample", "walk_forward", "bootstrap", "deflated_sharpe", "cost_stress", "random_baseline", "benchmark", "parameter_stability", "ablation"]},
+  "requires": []
+}

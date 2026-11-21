@@ -25,7 +25,7 @@ Pages never import each other and never reach into the engine.
 - Follow `docs/design-language.md`: no blue fills, red means live, one signal-gradient
   edge per area, glow only on the Run button, mono numbers.
 - Build UI from `desktop/design/components.py` (Card, StatTile, EmptyState, Segmented,
-  RunButton, Canvas, the node canvas, button variants, badge, label roles), plus `TimeChart` in `design/chart.py`. Need something new? Add it to the kit and the
+  RunButton, Canvas, the node canvas, button variants, badge, label roles), plus `TimeChart` in `design/chart.py` and `VerdictCard` for backtest results. Need something new? Add it to the kit and the
   gallery first, then use it.
 - Icons: `desktop/design/icons.py`, recoloured through `theme.watch` on theme change.
 - One primary button per area. Sentence case. Plain words in labels and help.
@@ -44,7 +44,9 @@ Pages never import each other and never reach into the engine.
 - Calendars are rule-based (`core/calendars.py`), never inferred from data.
 - Datasets live in `paths.app_folder() / "data"` as Parquet plus `catalogue.json`.
 - One simulation engine. Measurements and backtests read run records; backtests may
-  re-run the same engine with changed settings.
+  re-run the same engine with changed settings (`workspace.backtests`, tests in
+  `Library.BACKTESTS`, built-ins in the `honest-tests` plugin; see `docs/backtests.md`).
+  A pass means only that a result survived that test.
 - Cash is real currency in the ledger (notional capital); results are shown normalised.
 - Plugins add entries to libraries via a manifest; removing one never breaks others.
   The loader is `app/plugins.py` (`workspace.plugins`); built-ins live in

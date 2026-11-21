@@ -5,12 +5,14 @@ work, so nothing here hard-codes a colour).
 """
 from __future__ import annotations
 
+import weakref
+
 from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
     QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QPushButton, QSizePolicy, QSpinBox,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 from . import icons, theme
@@ -711,6 +713,71 @@ class ItemRow(QFrame):
         self.note.style().unpolish(self.note)
         self.note.style().polish(self.note)
         self.note.setVisible(bool(text))
+
+
+class VerdictCard(Card):
+    """A backtest's result: a plain verdict, the headline, a few figures and why it matters.
+
+    ``outcome``: pass, fail or na (could not judge), or running. The explanation folds
+    away (``set_folded``); ``fold_changed(folded)`` fires when the person folds it."""
+
+    fold_changed = Signal(bool)
+    TAGS = {"pass": ("Passed", "success"), "fail": ("Failed", "danger"), "na": ("Could not judge", "neutral"),
+            "running": ("Running", "brand")}
+    ACCENTS = {"pass": "success", "fail": "danger", "na": "muted", "running": "brand"}
+
+    def __init__(self, name: str, outcome: str, headline: str, explanation: str = "",
+                 figures: list[tuple[str, str]] | None = None, about: str = "", parent=None):
+        super().__init__(parent=parent, accent=self.ACCENTS.get(outcome, "muted"))
+        self.name, self.outcome = name, outcome
+        self.body.setSpacing(S["sm"])
+        text, kind = self.TAGS.get(outcome, self.TAGS["na"])
+        self.tag = badge(text, kind)
+        self.title = label(name, "title")
+        self.fold = QToolButton()
+        self.fold.setAutoRaise(True)
+        self.fold.setCursor(Qt.PointingHandCursor)
+        self.fold.setToolTip("Fold or unfold the explanation")
+        self.fold.clicked.connect(lambda: self.set_folded(not self.folded, emit=True))
+        me = weakref.ref(self)
+        theme.watch(self.fold, lambda w: me() is not None and me()._paint_fold())
+        self.actions = hbox(spacing=S["xs"])
+        self.body.addLayout(hbox(self.tag, self.title, None, self.actions, self.fold, spacing=S["sm"]))
+        self.headline = label(headline, "", wrap=True)
+        self.body.addWidget(self.headline)
+        self.figures = QGridLayout()
+        self.figures.setHorizontalSpacing(S["xl"])
+        self.figures.setVerticalSpacing(S["xxs"])
+        for i, (cap, val) in enumerate(figures or []):
+            self.figures.addWidget(label(cap.upper(), "overline"), 0, i)
+            self.figures.addWidget(label(val, "mono"), 1, i)
+        if figures:
+            self.figures.setColumnStretch(len(figures), 1)
+            self.body.addLayout(self.figures)
+        self.explanation = label(explanation, "caption", wrap=True)
+        self.explanation.setVisible(bool(explanation))
+        self.body.addWidget(self.explanation)
+        if about:
+            self.setToolTip(about)
+        self.folded = False
+        self.set_folded(False)
+
+    def add_action(self, widget: QWidget) -> None:
+        self.actions.addWidget(widget)
+
+    def _paint_fold(self) -> None:
+        name = "chevron_right" if getattr(self, "folded", False) else "chevron"
+        self.fold.setIcon(icons.icon(name, theme.current().text_muted, size=14))
+
+    def set_folded(self, folded: bool, emit: bool = False) -> None:
+        self.folded = folded
+        self.explanation.setVisible(not folded and bool(self.explanation.text()))
+        for i in range(self.figures.count()):
+            self.figures.itemAt(i).widget().setVisible(not folded)
+        self._paint_fold()
+        self.fold.setToolTip("Unfold the explanation" if folded else "Fold the explanation")
+        if emit:
+            self.fold_changed.emit(folded)
 
 
 # Code and knobs live in their own file; they are part of the kit all the same.

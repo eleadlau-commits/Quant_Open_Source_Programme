@@ -18,8 +18,8 @@ from . import tokens as T
 from .chart import SUB, ChartMarker, ChartSeries, TimeChart
 from .components import (
     CableEnds, Canvas, Card, CodeEditor, DataTable, Details, EmptyState, ItemRow, KnobControl, KnobSpec, Logo,
-    NodeCanvasScene, NodeCanvasView, NodeSpec, ParamForm, RunButton, SearchField, Segmented, StatTile, Switch, badge,
-    button, divider, hbox, label,
+    NodeCanvasScene, NodeCanvasView, NodeSpec, ParamForm, RunButton, SearchField, Segmented, StatTile, Switch,
+    VerdictCard, badge, button, divider, hbox, label,
 )
 
 S = T.SPACE
@@ -170,6 +170,22 @@ def build() -> QWidget:
     ok.add_action(badge("Passed", "success"))
     row.addWidget(ok)
     col.addLayout(row)
+
+    # verdicts
+    vd = section("Verdicts", "VerdictCard: a backtest's result. Passed, failed or could not judge, the headline, a few "
+                             "figures and why it matters. The explanation folds away.")
+    vrow = hbox(spacing=S["lg"])
+    vrow.addWidget(VerdictCard("Out-of-sample", "pass", "In-sample Sharpe 1.42, out-of-sample 0.91 (+6.3%)",
+                               "The knobs were chosen using only the early part, then tested on the later part.",
+                               [("In-sample", "1.42"), ("Out-of-sample", "0.91")]), 1)
+    vrow.addWidget(VerdictCard("Cost stress", "fail", "Profit as run +4.1%, at 2x costs -1.8%",
+                               "If the edge disappears when costs double, it is unlikely to survive real trading.",
+                               [("As run", "+4.1%"), ("At 2x", "-1.8%")]), 1)
+    na = VerdictCard("Parameter stability", "na", "No knobs to move", "Give a knob a range and it can run.")
+    na.set_folded(True)
+    vrow.addWidget(na, 1)
+    vd.body.addLayout(vrow)
+    col.addWidget(vd)
 
     # canvas
     cv = section("Canvas", "The patch bay and charts sit on the skin's backdrop.")

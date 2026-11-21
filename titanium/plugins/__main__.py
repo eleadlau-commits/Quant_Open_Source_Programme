@@ -1,6 +1,6 @@
 """``python -m titanium.plugins new|check|pack|install|list|remove``.
 
-    new <id> [--adds modules|data_sources|generators|skins] [--in FOLDER]
+    new <id> [--adds modules|data_sources|generators|backtests|skins] [--in FOLDER]
     check <folder or .tiplug> [--no-tests]
     pack <folder> [--out FOLDER]
     install <.tiplug or folder> [--replace] [--no-tests]
