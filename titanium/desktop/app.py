@@ -125,6 +125,24 @@ def set_windows_app_id() -> None:
             pass
 
 
+SAMPLES_KEY = "first_launch/samples"
+
+
+def add_samples_on_first_launch(ctx: AppContext, background: bool = True) -> bool:
+    """On the very first launch with no datasets, add the sample datasets (in the background)."""
+    from ..app.samples import build_samples, commit_samples
+    from . import tasks
+
+    done = str(ctx.settings.value(SAMPLES_KEY, "")).lower() in ("1", "true")
+    ctx.settings.setValue(SAMPLES_KEY, True)
+    ds = ctx.workspace.datasets
+    if done or len(ds):
+        return False
+    tasks.run(lambda: build_samples(ds), lambda infos: commit_samples(ds, infos),
+              lambda e: print(f"couldn't add the sample datasets: {e}", file=sys.stderr), background)
+    return True
+
+
 def main(argv=None, on_shown=None) -> int:
     argv = list(sys.argv if argv is None else argv)
     set_windows_app_id()  # before any window exists
@@ -145,4 +163,5 @@ def main(argv=None, on_shown=None) -> int:
     if "--self-test" in argv:
         app.processEvents()
         return _report_self_test(self_test(win))
+    add_samples_on_first_launch(ctx)
     return app.exec()

@@ -90,6 +90,7 @@ class ViewDock(QDockWidget):
     def hide_by_user(self):
         self.user_hidden = True
         self.hide()
+        self.shell._save_hidden()
 
 
 class PageHeader(QWidget):
@@ -169,6 +170,11 @@ class MainWindow(QMainWindow):
         self.rail_lay.addStretch()
         self.corner_box = QVBoxLayout()
         self.rail_lay.addLayout(self.corner_box)
+        self.panels_button = NavButton("panels", "Panels", "dock")
+        self.panels_button.setCheckable(False)
+        self.panels_button.setToolTip("Show or hide panels (docks), and choose where each view lives")
+        self.panels_button.clicked.connect(self.show_panels_menu)
+        self.corner_box.addWidget(self.panels_button, 0, Qt.AlignHCenter)
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
         self.nav_buttons: dict[str, NavButton] = {}
@@ -197,6 +203,7 @@ class MainWindow(QMainWindow):
         bl.addWidget(self.dock_host, 1)
         self.setCentralWidget(body)
 
+        self._hidden = set(self._saved_hidden())
         for spec in registry.specs():
             if self.hosts[spec.view_id] == PAGE:
                 self._add_page(spec.view_id)
@@ -220,6 +227,58 @@ class MainWindow(QMainWindow):
 
     def _save_hosts(self) -> None:
         self.ctx.settings.setValue("layout/hosts", json.dumps(self.hosts, sort_keys=True))
+
+    def _saved_hidden(self) -> list[str]:
+        raw = self.ctx.settings.value("layout/hidden", "")
+        try:
+            out = json.loads(raw) if raw else []
+        except (TypeError, ValueError):
+            return []
+        return [v for v in out if isinstance(v, str)] if isinstance(out, list) else []
+
+    def _save_hidden(self) -> None:
+        self._hidden = {v for v, d in self.docks.items() if d.user_hidden}
+        self.ctx.settings.setValue("layout/hidden", json.dumps(sorted(self._hidden)))
+
+    # ---- the Panels menu: show and hide every dock
+    def panels_menu(self) -> QMenu:
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        docks = [s for s in self.registry.specs() if self.hosts[s.view_id] == DOCK]
+        if docks:
+            menu.addSection("Panels")
+        for spec in docks:
+            dock = self.docks[spec.view_id]
+            where = ", ".join(self.registry.spec(p).title for p in spec.pages if p in self.views) or "every page"
+            act = menu.addAction(spec.title)
+            act.setCheckable(True)
+            act.setChecked(not dock.user_hidden)
+            act.setToolTip(f"Shows on {where}")
+            act.setData(spec.view_id)
+            act.toggled.connect(lambda on, v=spec.view_id: self.set_panel_shown(v, on))
+        menu.addSeparator()
+        menu.addAction("Where each view lives…", lambda: self.show_page("settings"))
+        return menu
+
+    def show_panels_menu(self) -> None:
+        menu = self.panels_menu()
+        menu.exec(self.panels_button.mapToGlobal(self.panels_button.rect().topRight()))
+
+    def set_panel_shown(self, view_id: str, shown: bool) -> None:
+        """Show a dock (going to a page it belongs on if this one isn't) or hide it, and remember."""
+        dock = self.docks.get(view_id)
+        if dock is None:
+            return
+        if not shown:
+            dock.hide_by_user()
+            return
+        dock.user_hidden = False
+        pages = [p for p in self.registry.spec(view_id).pages if self.hosts.get(p) == PAGE]
+        if pages and self.current not in pages:
+            self.show_page(pages[0])
+        self._sync_docks()
+        dock.raise_()
+        self._save_hidden()
 
     # ---- pages
     def _add_page(self, view_id: str) -> None:
@@ -255,6 +314,7 @@ class MainWindow(QMainWindow):
                 dock.user_hidden = False
                 dock.show()
                 dock.raise_()
+                self._save_hidden()
             return
         view = self.views[view_id]
         self.current = view_id
@@ -268,6 +328,7 @@ class MainWindow(QMainWindow):
     def _add_dock(self, view_id: str) -> None:
         view = self.views[view_id]
         dock = ViewDock(self, view)
+        dock.user_hidden = view_id in getattr(self, "_hidden", set())
         area = _AREAS.get(getattr(view, "dock_area", "right"), Qt.RightDockWidgetArea)
         self.dock_host.addDockWidget(area, dock)
         self.docks[view_id] = dock
@@ -314,4 +375,5 @@ class MainWindow(QMainWindow):
             view.show()
             self.show_page(view_id)
         self._save_hosts()
+        self._save_hidden()
         self.ctx.layout_changed.emit(view_id, host)

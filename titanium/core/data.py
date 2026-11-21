@@ -59,6 +59,7 @@ class DatasetInfo:
     series: list[str] = field(default_factory=list)  # names of complementary or generated series
     created: datetime | None = None
     size_bytes: int = 0
+    sample: bool = False  # added on first launch to try things with; removable in one go
 
 
 class LookAheadError(RuntimeError):

@@ -269,3 +269,18 @@ def test_datasets_save_in_a_fresh_process_with_qt_loaded(tmp_path):
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=180,
                          env={**__import__("os").environ, "QT_QPA_PLATFORM": "offscreen"})
     assert out.stdout.strip().endswith("ok"), out.stdout + out.stderr
+
+
+def test_sample_datasets_are_marked_saved_and_removed_together(tmp_path):
+    from titanium.app.samples import add_samples, remove_samples
+    from titanium.app.workspace import Workspace
+
+    ws = Workspace(data_root=tmp_path)
+    infos = add_samples(ws.datasets)
+    assert [i.market for i in infos] == ["xnas", "cme"] and all(i.sample for i in infos)
+    again = Workspace(data_root=tmp_path)
+    assert all(i.sample for i in again.datasets.infos())
+    ws.datasets.use(infos[0].id, "S1")
+    assert remove_samples(ws.datasets) == [infos[1].id]  # one a strategy uses stays
+    ws.datasets.release(infos[0].id, "S1")
+    assert remove_samples(ws.datasets) == [infos[0].id] and not len(ws.datasets)
