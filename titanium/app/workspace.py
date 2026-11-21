@@ -8,12 +8,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..core.plugins import Registry
-from ..core.run import RunRecord
 from ..core.strategy import StrategyGraph
 from .collection import Collection
 from .datasets import DatasetService
+from .runs import RunJob, RunService
 
-__all__ = ["Collection", "DatasetService", "Workspace"]
+__all__ = ["Collection", "DatasetService", "RunJob", "RunService", "Workspace"]
 
 
 class Workspace:
@@ -25,7 +25,7 @@ class Workspace:
         self.registry = registry or Registry()
         self.datasets = DatasetService(self.registry, data_root)
         self.strategies: Collection[StrategyGraph] = Collection()
-        self.runs: Collection[RunRecord] = Collection()
+        self.runs = RunService(self.datasets, self.strategies)
         self.strategies.added.connect(self._strategy_changed)
         self.strategies.changed.connect(self._strategy_changed)
 

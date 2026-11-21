@@ -88,6 +88,7 @@ class Decision:
 
     targets: dict[str, float] | None = None  # fraction of equity per instrument; missing = 0
     orders: list[Order] = field(default_factory=list)
+    cancel: list[str] = field(default_factory=list)  # ids of open orders to cancel (addition, Phase 1B)
 
 
 @runtime_checkable
