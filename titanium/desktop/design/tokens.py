@@ -64,6 +64,14 @@ class Palette:
     highlight: str  # the 1px light catch on a panel's top edge
     glow: str  # colour of the glow around the Run button
     accent_2: str  # second stop of the signal gradient (red into amber)
+    # the code editor's syntax colours (optional in a pack: skins.CODE_FALLBACKS fills them in)
+    code_keyword: str = ""
+    code_function: str = ""
+    code_string: str = ""
+    code_number: str = ""
+    code_comment: str = ""
+    code_decorator: str = ""
+    code_knob: str = ""  # background behind knob(...) calls
 
 
 @dataclass(frozen=True)

@@ -261,6 +261,9 @@ QComboBox QAbstractItemView {{ background: {c['surface']}; border: 1px solid {c[
             selection-background-color: {c['primary_soft']}; selection-color: {c['text']}; }}
 QPlainTextEdit, QTextEdit {{ background: {c['sunken']}; border: 1px solid {c['border']}; border-radius: {r['md']}px;
             selection-background-color: {c['primary']}; }}
+QPlainTextEdit[code="true"] {{ color: {c['text']}; padding: {s['xs']}px 0; selection-color: {c['on_primary']}; }}
+QPlainTextEdit[code="true"]:focus {{ border: 1px solid {c['border_strong']}; }}
+QLabel[role="knobvalue"] {{ color: {c['text']}; font-size: {ty.label}px; }}
 QCheckBox {{ spacing: {s['sm']}px; }}
 QSlider::groove:horizontal {{ height: 4px; background: {c['border']}; border-radius: 2px; }}
 QSlider::sub-page:horizontal {{ background: {c['brand'] if fx.primary == "edge" else c['primary']}; border-radius: 2px; }}

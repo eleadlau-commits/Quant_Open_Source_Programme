@@ -50,6 +50,14 @@ danger = "#b8392d"
 series = ["#b4635e", "#3d5fa8", "#23804c", "#b7791f", "#7b3fb0", "#2a8c9a"]
 highlight = "#ffffffe6"
 glow = "#b4635e"
+# code editor (syntax colours; code_knob is the background of knob(...) calls)
+code_keyword = "#a2504b"
+code_function = "#3d5fa8"
+code_string = "#3c7a4a"
+code_number = "#a8742f"
+code_comment = "#8a8a84"
+code_decorator = "#5e5e5a"
+code_knob = "#ecd5d2"
 
 [dark]
 window = "#0f1011"
@@ -79,3 +87,11 @@ danger = "#ff7a6c"
 series = ["#e0837c", "#8fa9d9", "#58c88a", "#e3b062", "#b79cf0", "#5cc3d1"]
 highlight = "#ffffff12"
 glow = "#e0837c"
+# code editor (syntax colours; code_knob is the background of knob(...) calls)
+code_keyword = "#e0837c"
+code_function = "#8fa9d9"
+code_string = "#9cc49a"
+code_number = "#d9a066"
+code_comment = "#6a6964"
+code_decorator = "#9a9893"
+code_knob = "#3a2422"
