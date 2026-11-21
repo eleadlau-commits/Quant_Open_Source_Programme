@@ -28,15 +28,16 @@ def label(text: str, role: str = "", wrap: bool = False) -> QLabel:
 
 
 def button(text: str, variant: str = "secondary", icon: str | None = None, tip: str = "") -> QPushButton:
-    """variant: primary (one per area), secondary, ghost, danger."""
+    """variant: primary (one per area), secondary, ghost, danger, run (the Run action: an ink pill)."""
     b = QPushButton(text)
     if variant != "secondary":
         b.setProperty("variant", variant)
     b.setCursor(Qt.PointingHandCursor)
     if icon:
-        def paint(w, name=icon, primary=variant == "primary"):
+        def paint(w, name=icon, v=variant):
             p = theme.current()
-            w.setIcon(icons.icon(name, p.on_primary if primary else p.text_muted, size=16))
+            color = {"primary": p.on_primary, "run": p.brand}.get(v, p.text_muted)
+            w.setIcon(icons.icon(name, color, size=16 if v != "run" else 14))
         paint(b)
         theme.watch(b, paint)
     if tip:

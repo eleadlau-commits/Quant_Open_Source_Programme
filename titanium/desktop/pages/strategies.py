@@ -33,8 +33,8 @@ class StrategyTab(QWidget):
         lay.setContentsMargins(S["xl"], S["lg"], S["xl"], S["xl"])
         lay.setSpacing(S["lg"])
         self.switch = Segmented([name for name, _, _ in STRATEGY_VIEWS])
-        self.run_btn = button("Run", "primary", "play", "Run this strategy (Ctrl+Enter)")
-        lay.addLayout(hbox(self.switch, badge("Empty strategy"), None, self.run_btn))
+        self.run_btn = button("Run", "run", "play", "Run this strategy (Ctrl+Enter)")
+        lay.addLayout(hbox(self.switch, badge("Empty strategy"), None, label("Ctrl+Enter", "caption"), self.run_btn))
         self.views = QStackedWidget()
         for name, icon, text in STRATEGY_VIEWS:
             self.views.addWidget(EmptyState(icon, name, text))

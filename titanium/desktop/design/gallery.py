@@ -84,11 +84,11 @@ def build() -> QWidget:
     col.addWidget(t)
 
     # buttons and badges
-    b = section("Buttons and badges", "One primary button per area.")
-    b.body.addLayout(hbox(button("Run strategy", "primary", "play"), button("Import file", icon="import"),
+    b = section("Buttons and badges", "Run is the ink pill. One primary button per area.")
+    b.body.addLayout(hbox(button("Run", "run", "play"), button("New strategy", "primary", "plus"), button("Import file", icon="import"),
                           button("Cancel", "ghost"), button("Reset to empty", "danger"),
                           button("Disabled", "primary"), None))
-    b.body.itemAt(b.body.count() - 1).layout().itemAt(4).widget().setEnabled(False)
+    b.body.itemAt(b.body.count() - 1).layout().itemAt(5).widget().setEnabled(False)
     b.body.addLayout(hbox(badge("Python"), badge("Patch bay", "primary"), badge("Starter", "brand"),
                           badge("Passed", "success"), badge("Failed", "danger"), None))
     seg = Segmented(["Patch bay", "Code", "Run"])
