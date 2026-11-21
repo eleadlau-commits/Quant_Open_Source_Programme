@@ -15,8 +15,14 @@ record = SimEngine(workspace.datasets).run(graph, dataset_id, {"capital": 50_000
 2. Names that missed a whole session (known delisted) are closed at their last price, flagged.
 3. Positions are marked at the latest visible closes; the portfolio state is recorded.
 4. The strategy sees a guarded view pinned to `t` and that state, and decides.
-5. The decision becomes orders. Target weights are sized against equity at the fill price,
-   in whole lots, sells first, buys limited to the cash there is.
+5. The decision becomes orders. Target weights are sized from what is known at `t`: the
+   latest visible close and the equity marked with it, in whole lots, sells first, buys
+   limited to the cash there is at those prices. The orders fill at the next bar's open.
+
+Because the fill price can differ from the sizing price (an overnight gap), a stock buy can
+cost a little more than the cash there was. The simulator lets cash go slightly negative
+rather than resizing at the fill (which would use the fill price to size), and logs the first
+step where it happens.
 
 ## Fills
 

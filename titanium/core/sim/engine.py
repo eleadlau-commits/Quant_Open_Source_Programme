@@ -9,9 +9,11 @@ Each step at decision time ``t``:
 3. the ledger is marked at the latest closes visible at ``t`` and the portfolio state
    is recorded;
 4. the strategy gets a guarded view pinned to ``t`` and that state, and decides;
-5. the decision becomes orders. Target weights are sized against equity at the fill
-   price (the next bar's open), in whole lots, sells before buys, buys limited to the
-   cash there is (no leverage beyond ``max_gross``).
+5. the decision becomes orders. Target weights are sized from what is known at ``t``:
+   the latest visible close and the equity marked with it, in whole lots, sells before
+   buys, buys limited to the cash there is (no leverage beyond ``max_gross``). They fill
+   at the next bar's open; if that gaps up, cash may dip slightly below zero, which is
+   allowed and logged.
 
 Settings (the strategy's ``graph.settings``, overridden by the run's ``settings``):
 ``decide_at``, ``every``, ``start``, ``end`` (see :mod:`.clock`), ``capital``
@@ -139,12 +141,17 @@ class SimEngine:
         rec.log(times[0] if times else None,
                 f"start: {len(times)} decisions, capital {capital:,.0f} {data.market.currency}")
 
+        overdrawn = False
         for n, t in enumerate(times):
             if _cancelled(cancel):
                 record.status = "cancelled"
                 rec.log(t, "cancelled")
                 break
             self._book(broker.fills(t), ledger, rec)
+            if ledger.cash < 0 and not overdrawn:
+                rec.log(t, f"cash went below zero ({ledger.cash:,.2f}): fills cost more than the prices "
+                           "orders were sized at (allowed, and shown here)")
+            overdrawn = ledger.cash < 0
             view = feed.view(t)
             # names that missed a whole session are known to be delisted: close at the last price
             prev = cal.previous_trading_day(view.today) if hasattr(cal, "previous_trading_day") else None
@@ -240,18 +247,20 @@ class SimEngine:
         if gross > max_gross + 1e-12:
             targets = {k: w * max_gross / gross for k, w in targets.items()}
         keys = sorted(set(targets) | set(ledger.positions))
+        # sized from what is known at t: the latest visible close and the equity marked with it.
+        # The order still fills at the next bar's open, which may differ (a gap): see docs/engine.md.
         prices, skip = {}, set()
         for k in keys:
-            nxt = broker.next_open(k, t)
-            if nxt is None:
+            mark = broker.mark(k, t)
+            if broker.next_open(k, t) is None or not mark == mark or mark <= 0:
                 skip.add(k)
             else:
-                prices[k] = nxt[1]
+                prices[k] = mark
         equity = ledger.equity_at(prices)
         deltas: list[tuple[str, float]] = []
         for k in keys:
             if k in skip:
-                rec.log(t, f"no bar left to trade {k}: left as it is")
+                rec.log(t, f"no price yet, or no bar left, to trade {k}: left as it is")
                 continue
             spec = broker.spec(k)
             unit = prices[k] * spec.multiplier
@@ -268,7 +277,7 @@ class SimEngine:
             spec = broker.spec(k)
             price = prices[k]
             qty = abs(delta)
-            at = broker.next_open(k, t)[0]
+            at = t
             cost = broker.costs.cost(spec, data.market, price, qty, at)
             if spec.kind is not InstrumentKind.FUTURE:
                 if delta > 0:

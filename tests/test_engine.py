@@ -98,13 +98,31 @@ def test_market_order_fills_at_next_bar_open():
     assert rec.states[2].positions["xnas:AAA"].quantity == 10
 
 
-def test_target_weights_sized_at_fill_price_in_whole_lots():
+def test_target_weights_sized_at_last_visible_close_in_whole_lots():
     data = stock_data()
     strat = Fixed({(1, "10:00"): {"xnas:AAA": 0.5}}, {"decide_at": "10:00"})
     rec = run(strat, data, costs={"stress": 0}, capital=10_000)
     f = rec.fills[0]
-    assert f.quantity == int(0.5 * 10_000 / f.price)
+    seen = data.minute("xnas:AAA").loc[pd.Timestamp(ny(DAYS[1], "09:59")).tz_convert("UTC"), "close"]
+    assert f.quantity == int(0.5 * 10_000 / seen)
     assert f.info["tag"] == "rebalance"
+
+
+def test_overnight_gap_sizes_at_pre_gap_price_and_fills_at_gapped_open():
+    data = stock_data()
+    df = data.minute("xnas:AAA")
+    gap_day = df.index.tz_convert(NY).date == DAYS[2]
+    df.loc[gap_day, ["open", "high", "low", "close"]] *= 1.5  # opens 50% higher on day 3
+    # decided at the close of day 2: the order lands on the gapped open of day 3
+    strat = Fixed({(1, "16:00"): {"xnas:AAA": 1.0}}, {"decide_at": "16:00"})
+    rec = run(strat, data, costs={"stress": 0}, capital=10_000)
+    f = rec.fills[0]
+    last_close = df.loc[pd.Timestamp(ny(DAYS[1], "15:59")).tz_convert("UTC"), "close"]
+    gapped_open = df.loc[pd.Timestamp(ny(DAYS[2], "09:30")).tz_convert("UTC"), "open"]
+    assert f.time == ny(DAYS[2], "09:30") and f.price == pytest.approx(gapped_open)
+    assert f.quantity == int(10_000 / last_close)  # what the pre-gap price implied
+    assert rec.states[2].cash < 0  # the gap cost more than the cash: allowed, and logged
+    assert any("below zero" in line for line in rec.log)
 
 
 def test_targets_scaled_to_max_gross_and_limited_by_cash():
