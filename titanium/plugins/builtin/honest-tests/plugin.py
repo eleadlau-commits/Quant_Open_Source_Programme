@@ -184,7 +184,8 @@ class DeflatedSharpe:
         skew, kurt = float(np.mean(z ** 3)), float(np.mean(z ** 4))
         denom = math.sqrt(max(1e-12, 1 - skew * sr + (kurt - 1) / 4 * sr ** 2))
         dsr = N.cdf((sr - sr0) * math.sqrt(T - 1) / denom)
-        counted = (f"{seen} version{'s' if seen != 1 else ''} of this strategy were run this session"
+        counted = (f"{seen} version{'s of this strategy were' if seen != 1 else ' of this strategy was'} run this "
+                   "session"
                    + (f"; you said {int(trials)} were tried" if int(trials) > seen else ""))
         return Verdict(
             name, dsr >= threshold, f"Chance the edge is real after {k} version{'s' if k != 1 else ''}: {dsr:.0%}",

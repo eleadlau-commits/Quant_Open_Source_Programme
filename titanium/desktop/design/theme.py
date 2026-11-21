@@ -208,6 +208,7 @@ QFrame[card="true"] {{ background: {panel}; border: 1px solid {c['border']}; {ed
 QFrame[card="true"][accent="brand"] {{ border-left: 3px solid {c['brand']}; }}
 QFrame[card="true"][accent="success"] {{ border-left: 3px solid {c['success']}; }}
 QFrame[card="true"][accent="danger"] {{ border-left: 3px solid {c['danger']}; }}
+QFrame[card="true"][accent="muted"] {{ border-left: 3px solid {c['border_strong']}; }}
 QFrame[divider="true"] {{ background: {c['border']}; border: none; max-height: 1px; min-height: 1px; }}
 QFrame[empty="true"] {{ background: transparent; border: 1px dashed {c['border_strong']}; border-radius: {r['xl']}px; }}
 QFrame[canvas="true"] {{ background: {c['sunken'] if fx.canvas != "none" else c['surface']}; border: 1px solid {c['border']};
