@@ -193,11 +193,19 @@ def test_turning_a_knob_reruns_after_a_pause(run_tab, qapp):
     assert rv.record is not first and rv.record.strategy_snapshot["knob_values"]["m3.top"] == 2
     assert rv.baseline is not None  # same terms: the default strategy is reused
     assert len(ws.runs.records("default")) == 1
-    # the Knobs and Trade log buttons bring their docks back
-    w.docks["trade_log"].hide_by_user()
-    rv.log_btn.click()
+    # knobs and the trade log live in the tab; popping one out shows its dock and hides the tab's copy
+    assert rv.knobs.controls["m3.top"].value == 2 and rv.knobs_card.isVisibleTo(rv)
+    assert rv.trade_log.table.rowCount() == len(rv.record.trades)
+    assert not w.docks["trade_log"].isVisible()
+    rv._pop_button("trade_log").click()
     qapp.processEvents()
-    assert w.docks["trade_log"].isVisible()
+    assert w.docks["trade_log"].isVisible() and not rv.log_card.isVisibleTo(rv)
+    assert w.views["trade_log"].table.rowCount() == len(rv.record.trades)  # following the tab in front
+    w.docks["trade_log"].hide_by_user()
+    assert rv.log_card.isVisibleTo(rv)
+    # turning a knob in the tab's own panel reruns too
+    rv.knobs.turn("m3.top", 3)
+    assert rv._timer.isActive()
 
 
 def test_cancel_and_failed_runs(run_tab, qapp):

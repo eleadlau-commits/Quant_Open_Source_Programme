@@ -23,6 +23,8 @@ class AppContext:
     theme_changed: Event = field(default_factory=Event)  # (mode,)
     skin_changed: Event = field(default_factory=Event)  # (skin_id,)
     layout_changed: Event = field(default_factory=Event)  # (view_id, host)
+    panel_open: Event = field(default_factory=Event)  # (view_id, open): a view is out as a page or a shown dock
+    panels: dict = field(default_factory=dict)  # view_id -> open, as last announced
 
     def __post_init__(self) -> None:
         """Hand the saved run defaults, market defaults (and a saved library folder) to the workspace."""

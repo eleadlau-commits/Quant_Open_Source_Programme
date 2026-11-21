@@ -91,6 +91,7 @@ class ViewDock(QDockWidget):
         self.user_hidden = True
         self.hide()
         self.shell._save_hidden()
+        self.shell._announce_panels()
 
 
 class PageHeader(QWidget):
@@ -230,8 +231,10 @@ class MainWindow(QMainWindow):
 
     def _saved_hidden(self) -> list[str]:
         raw = self.ctx.settings.value("layout/hidden", "")
+        if not raw:  # nothing saved yet: pop-outs start hidden
+            return [s.view_id for s in self.registry.specs() if s.starts_hidden]
         try:
-            out = json.loads(raw) if raw else []
+            out = json.loads(raw)
         except (TypeError, ValueError):
             return []
         return [v for v in out if isinstance(v, str)] if isinstance(out, list) else []
@@ -315,6 +318,7 @@ class MainWindow(QMainWindow):
                 dock.show()
                 dock.raise_()
                 self._save_hidden()
+                self._announce_panels()
             return
         view = self.views[view_id]
         self.current = view_id
@@ -346,6 +350,21 @@ class MainWindow(QMainWindow):
             pages = self.registry.spec(view_id).pages
             wanted = (not pages or self.current in pages) and not dock.user_hidden
             dock.setVisible(wanted)
+        self._announce_panels()
+
+    def panel_open(self, view_id: str) -> bool:
+        """Whether a view is out as a dock the person wants (or is a page): pages hide their copy then."""
+        if self.hosts.get(view_id) == PAGE:
+            return True
+        dock = self.docks.get(view_id)
+        return dock is not None and not dock.user_hidden
+
+    def _announce_panels(self) -> None:
+        for view_id in self.views:
+            now = self.panel_open(view_id)
+            if self.ctx.panels.get(view_id) != now:
+                self.ctx.panels[view_id] = now
+                self.ctx.panel_open.emit(view_id, now)
 
     # ---- moving a view between page and dock
     def move_view(self, view_id: str, host: str) -> None:
