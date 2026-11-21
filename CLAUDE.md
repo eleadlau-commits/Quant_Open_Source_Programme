@@ -16,15 +16,22 @@ Pages never import each other and never reach into the engine.
 
 ## Design system (mandatory for UI code)
 
-- Colours, type sizes, spacing and radii come only from `desktop/design/tokens.py`.
-  No hex colours or `setStyleSheet` outside `desktop/design/` (a test enforces this).
+- Looks come from skin packs: `desktop/design/packs/*.toml` (Graphite is the default,
+  Classic is the original), loaded by `design/skins.py`. Type sizes, spacing and control
+  sizes are in `design/tokens.py`. Read colours with `theme.current()`, radii with
+  `theme.radius()`, effects with `theme.effects()`. No hex colours or `setStyleSheet`
+  outside `desktop/design/` (a test enforces this). `theme.stylesheet` is the only
+  place styling is generated.
+- Follow `docs/design-language.md`: no blue fills, red means live, one signal-gradient
+  edge per area, glow only on the Run button, mono numbers.
 - Build UI from `desktop/design/components.py` (Card, StatTile, EmptyState, Segmented,
-  button variants, badge, label roles). Need something new? Add it to the kit and the
+  RunButton, Canvas, button variants, badge, label roles). Need something new? Add it to the kit and the
   gallery first, then use it.
 - Icons: `desktop/design/icons.py`, recoloured through `theme.watch` on theme change.
 - One primary button per area. Sentence case. Plain words in labels and help.
-- Every UI change: run `python tools/screenshots.py` and attach light and dark images
-  of the pages it changes to the PR. Compare with the gallery
+- Every UI change: run `python tools/screenshots.py` (it shoots every skin) and attach
+  light and dark images of the pages it changes to the PR. Changing a component? Check it
+  under Classic too. Compare with the gallery
   (`python -m titanium.desktop.design.gallery`).
 
 ## Core rules carried over from the prototype

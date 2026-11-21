@@ -2,6 +2,8 @@
 
     python tools/screenshots.py [out_dir]     (default: docs/screenshots)
 
+The default skin's images go in out_dir; every other skin's in out_dir/skins/<id>/.
+
 Every pull request that changes the UI runs this and attaches the images, so the
 look is reviewed against the gallery before it is merged.
 """
@@ -19,7 +21,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from titanium.desktop.app import build_window  # noqa: E402
 from titanium.desktop.context import AppContext  # noqa: E402
-from titanium.desktop.design import theme  # noqa: E402
+from titanium.desktop.design import skins, theme  # noqa: E402
 from titanium.desktop.design.gallery import build as build_gallery  # noqa: E402
 
 
@@ -30,11 +32,19 @@ def settle(app, n=30):
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    out = Path(argv[0] if argv else "docs/screenshots")
-    out.mkdir(parents=True, exist_ok=True)
+    root = Path(argv[0] if argv else "docs/screenshots")
     app = QApplication.instance() or QApplication([])
+    for sk in skins.available():
+        out = root if sk.id == skins.DEFAULT else root / "skins" / sk.id
+        out.mkdir(parents=True, exist_ok=True)
+        shoot(app, sk.id, out)
+    print(f"saved to {root}")
+    return 0
+
+
+def shoot(app, skin_id: str, out: Path) -> None:
     for mode in ("light", "dark"):
-        theme.apply(app, mode)
+        theme.apply(app, mode, skin_id)
         with tempfile.TemporaryDirectory() as tmp:
             ctx = AppContext(QSettings(str(Path(tmp) / "s.ini"), QSettings.IniFormat))
             win = build_window(ctx)
@@ -56,8 +66,6 @@ def main(argv=None) -> int:
         settle(app)
         g.widget().grab().save(str(out / f"gallery-{mode}.png"))
         g.close()
-    print(f"saved to {out}")
-    return 0
 
 
 if __name__ == "__main__":

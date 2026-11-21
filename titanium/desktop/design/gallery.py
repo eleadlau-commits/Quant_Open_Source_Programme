@@ -1,6 +1,6 @@
 """The design gallery: every component of the kit in one window, the visual reference.
 
-    python -m titanium.desktop.design.gallery          (add --dark for dark mode)
+    python -m titanium.desktop.design.gallery          (add --dark for dark mode, --skin <id> for a skin)
 """
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import sys
 from dataclasses import fields
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QGridLayout, QLabel, QScrollArea, QSlider, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from . import icons, theme
 from . import tokens as T
 from .components import (
-    Card, EmptyState, Logo, SearchField, Segmented, StatTile, badge, button, hbox, label,
+    Canvas, Card, EmptyState, Logo, RunButton, SearchField, Segmented, StatTile, badge, button, hbox, label,
 )
 
 S = T.SPACE
@@ -33,13 +33,13 @@ class Swatch(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         pal = theme.current()
-        p.setPen(QColor(pal.border))
-        p.setBrush(QColor(self.color))
-        p.drawRoundedRect(0, 0, self.width() - 1, 36, T.RADIUS["md"], T.RADIUS["md"])
-        p.setPen(QColor(pal.text))
+        p.setPen(theme.qcolor(pal.border))
+        p.setBrush(theme.qcolor(self.color))
+        p.drawRoundedRect(0, 0, self.width() - 1, 36, theme.radius("md"), theme.radius("md"))
+        p.setPen(theme.qcolor(pal.text))
         p.setFont(theme.ui_font(T.TYPE.caption))
         p.drawText(0, 50, self.name)
-        p.setPen(QColor(pal.text_faint))
+        p.setPen(theme.qcolor(pal.text_faint))
         p.drawText(0, 62, self.color)
 
 
@@ -58,12 +58,12 @@ def build() -> QWidget:
     titles = QVBoxLayout()
     titles.setSpacing(0)
     titles.addWidget(label("Titanium design system", "display"))
-    titles.addWidget(label(f"Every component, in the {pal.name} theme. UI code uses only these.", "muted"))
+    titles.addWidget(label(f"Every component, in the {theme.skin().name} skin, {pal.name} theme. UI code uses only these.", "muted"))
     head.addLayout(titles, 1)
     col.addLayout(head)
 
     # colour
-    c = section("Colour", "Tokens from design/tokens.py. Brand red comes from the logo; blue is for actions.")
+    c = section("Colour", f"Tokens from the {theme.skin().name} skin pack. Brand red comes from the logo and marks what is live.")
     grid = QGridLayout()
     grid.setSpacing(S["md"])
     names = [f.name for f in fields(pal) if f.name not in ("name", "series")]
@@ -84,11 +84,14 @@ def build() -> QWidget:
     col.addWidget(t)
 
     # buttons and badges
-    b = section("Buttons and badges", "One primary button per area.")
-    b.body.addLayout(hbox(button("Run strategy", "primary", "play"), button("Import file", icon="import"),
+    b = section("Buttons and badges", "One primary button per area. Run is its own component.")
+    running = RunButton()
+    running.set_running(True, "61%")
+    b.body.addLayout(hbox(RunButton(), running, None))
+    b.body.addLayout(hbox(button("New strategy", "primary", "plus"), button("Import file", icon="import"),
                           button("Cancel", "ghost"), button("Reset to empty", "danger"),
                           button("Disabled", "primary"), None))
-    b.body.itemAt(b.body.count() - 1).layout().itemAt(4).widget().setEnabled(False)
+    b.body.itemAt(b.body.count() - 1).layout().itemAt(4).widget().setEnabled(False)  # the Disabled one
     b.body.addLayout(hbox(badge("Python"), badge("Patch bay", "primary"), badge("Starter", "brand"),
                           badge("Passed", "success"), badge("Failed", "danger"), None))
     seg = Segmented(["Patch bay", "Code", "Run"])
@@ -116,6 +119,14 @@ def build() -> QWidget:
     ok.add_action(badge("Passed", "success"))
     row.addWidget(ok)
     col.addLayout(row)
+
+    # canvas
+    cv = section("Canvas", "The patch bay and charts sit on the skin's backdrop.")
+    canvas = Canvas()
+    canvas.setFixedHeight(120)
+    canvas.body.addWidget(label("Modules go here", "muted"), 0, Qt.AlignCenter)
+    cv.body.addWidget(canvas)
+    col.addWidget(cv)
 
     # table
     tc = section("Table", "Lists of datasets, strategies, trades.")
@@ -171,7 +182,8 @@ def build() -> QWidget:
 def main(argv=None) -> int:
     argv = sys.argv if argv is None else argv
     app = QApplication.instance() or QApplication(argv)
-    theme.apply(app, "dark" if "--dark" in argv else "light")
+    skin_id = argv[argv.index("--skin") + 1] if "--skin" in argv[:-1] else None
+    theme.apply(app, "dark" if "--dark" in argv else "light", skin_id)
     w = build()
     w.resize(1280, 900)
     w.show()

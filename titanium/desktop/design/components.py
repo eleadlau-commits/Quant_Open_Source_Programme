@@ -5,10 +5,11 @@ work, so nothing here hard-codes a colour).
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtCore import QEasingCurve, QPointF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtGui import QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QButtonGroup, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy,
+    QVBoxLayout, QWidget,
 )
 
 from . import icons, theme
@@ -36,7 +37,11 @@ def button(text: str, variant: str = "secondary", icon: str | None = None, tip: 
     if icon:
         def paint(w, name=icon, primary=variant == "primary"):
             p = theme.current()
-            w.setIcon(icons.icon(name, p.on_primary if primary else p.text_muted, size=16))
+            if not primary:
+                color = p.text_muted
+            else:  # primary: white on a fill, the brand red on a raised edge button
+                color = p.on_primary if theme.effects().primary == "fill" else p.brand
+            w.setIcon(icons.icon(name, color, size=16))
         paint(b)
         theme.watch(b, paint)
     if tip:
@@ -204,3 +209,143 @@ class Logo(QLabel):
         self.setPixmap(pm)
         self.setFixedSize(size, size)
         self.setToolTip("Titanium")
+
+
+class RunButton(QPushButton):
+    """The Run action: a red play mark, the label, and the shortcut beside it.
+
+    The skin decides its shape (``effects.run``: fill or capsule) and whether it glows
+    (``effects.glow``). ``set_running(True)`` shows it is busy: the label reads
+    "Running", the hint shows progress, and a glowing skin pulses.
+    """
+
+    def __init__(self, text: str = "Run", shortcut: str = "Ctrl ↵", tip: str = "", parent=None):
+        super().__init__(parent)
+        self.setProperty("variant", "run")
+        self.setCursor(Qt.PointingHandCursor)
+        self._text, self._shortcut = text, shortcut
+        if tip:
+            self.setToolTip(tip)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(S["md"] - 2, 0, S["md"], 0)
+        lay.setSpacing(S["sm"] - 1)
+        self.mark = QLabel()
+        self.label = QLabel(text)
+        self.label.setProperty("role", "runtext")
+        self.hint = QLabel(shortcut)
+        self.hint.setProperty("role", "runhint")
+        for w in (self.mark, self.label, self.hint):
+            w.setAttribute(Qt.WA_TransparentForMouseEvents)
+            lay.addWidget(w)
+        self.running = False
+        self._pulse = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=1400, loopCount=-1)
+        self._pulse.setEasingCurve(QEasingCurve.InOutSine)
+        self._pulse.valueChanged.connect(self._pulse_step)
+        self.retheme()
+        theme.watch(self, RunButton.retheme)
+
+    def sizeHint(self) -> QSize:
+        h = self.layout().sizeHint()
+        return QSize(h.width(), T.CONTROL_HEIGHT)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def retheme(self) -> None:
+        p, fx = theme.current(), theme.effects()
+        on_fill = fx.run == "fill"
+        self.mark.setPixmap(icons.pixmap("play", p.on_primary if on_fill else p.brand, 11))
+        self.hint.setFont(theme.mono_font(T.TYPE.caption - 1))
+        if fx.glow > 0:
+            fx_ = self.graphicsEffect()
+            if not isinstance(fx_, QGraphicsDropShadowEffect):
+                fx_ = QGraphicsDropShadowEffect(self)
+                fx_.setOffset(0, 0)
+                self.setGraphicsEffect(fx_)
+            self._glow_at(0.0)
+        else:
+            self.setGraphicsEffect(None)
+        self._sync_pulse()
+
+    def _glow_at(self, t: float) -> None:
+        """t from 0 (resting glow) to 1 (peak of a running pulse)."""
+        eff = self.graphicsEffect()
+        if not isinstance(eff, QGraphicsDropShadowEffect):
+            return
+        g = theme.effects().glow
+        strength = g * (0.55 + 0.45 * t) if self.running else g * 0.5
+        eff.setBlurRadius(14 + 14 * t if self.running else 14)
+        eff.setColor(theme.qcolor(theme.current().glow, strength))
+
+    def _pulse_step(self, v) -> None:
+        self._glow_at(1 - abs(1 - 2 * float(v)))
+
+    def _sync_pulse(self) -> None:
+        if self.running and isinstance(self.graphicsEffect(), QGraphicsDropShadowEffect):
+            if self._pulse.state() != QVariantAnimation.Running:
+                self._pulse.start()
+        else:
+            self._pulse.stop()
+            self._glow_at(0.0)
+
+    def set_running(self, running: bool, progress: str = "") -> None:
+        self.running = running
+        self.setProperty("running", "true" if running else "false")
+        self.label.setText("Running" if running else self._text)
+        self.hint.setText(progress if running and progress else self._shortcut)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.updateGeometry()
+        self._sync_pulse()
+
+
+class Canvas(QFrame):
+    """A working surface for things laid out in space (the patch bay, charts).
+    Draws the skin's backdrop: plain, a dot grid or ruled lines (``effects.canvas``)."""
+
+    STEP = 16
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setProperty("canvas", "true")
+        self.body = QVBoxLayout(self)
+        self.body.setContentsMargins(S["lg"], S["lg"], S["lg"], S["lg"])
+        theme.watch(self, lambda w: w.update())
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        kind = theme.effects().canvas
+        if kind == "none":
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        pal = theme.current()
+        inset, step = 6, self.STEP
+        w, h = self.width() - inset, self.height() - inset
+        if kind == "dots":
+            p.setPen(QPen(theme.qcolor(pal.border_strong, 0.55), 1.4, Qt.SolidLine, Qt.RoundCap))
+            p.drawPoints([QPointF(x, y) for x in range(step, w, step) for y in range(step, h, step)])
+        else:
+            p.setPen(QPen(theme.qcolor(pal.border, 0.8), 1))
+            for y in range(step * 2, h, step * 2):
+                p.drawLine(inset, y, w, y)
+        p.end()
+
+
+def paint_nav_marker(widget: QWidget) -> None:
+    """The active page's marker in the navigation rail, for skins with ``nav_marker = "dot"``:
+    a small glowing brand-red dot in the button's top-right corner. Called from the
+    rail button's paintEvent; does nothing for other skins or unchecked buttons."""
+    if theme.effects().nav_marker != "dot" or not getattr(widget, "isChecked", lambda: False)():
+        return
+    p = QPainter(widget)
+    p.setRenderHint(QPainter.Antialiasing)
+    pal = theme.current()
+    c = QPointF(widget.width() - 9.5, 9.5)
+    p.setPen(Qt.NoPen)
+    for radius, alpha in ((6.0, 0.12), (4.0, 0.25)):
+        p.setBrush(theme.qcolor(pal.glow, alpha))
+        p.drawEllipse(c, radius, radius)
+    p.setBrush(theme.qcolor(pal.brand))
+    p.drawEllipse(c, 2.4, 2.4)
+    p.end()

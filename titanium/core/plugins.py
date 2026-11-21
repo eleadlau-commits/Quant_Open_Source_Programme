@@ -29,6 +29,7 @@ class Library(str, Enum):
     BROKERS = "brokers"  # later: live engine
     VIEWS = "views"  # later: extra panels and editors
     EXPORTERS = "exporters"  # later
+    SKINS = "skins"  # looks for the desktop app: a skin TOML path, its data, or a Skin
 
 
 @dataclass

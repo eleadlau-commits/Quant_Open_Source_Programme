@@ -21,7 +21,7 @@ titanium = "titanium.desktop.app:main"
 include = ["titanium*"]
 
 [tool.setuptools.package-data]
-"titanium.desktop" = ["assets/*.png", "assets/*.svg"]
+"titanium.desktop" = ["assets/*.png", "assets/*.svg", "design/packs/*.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
