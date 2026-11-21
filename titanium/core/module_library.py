@@ -166,5 +166,5 @@ def momentum_rotation(id: str = "S1", name: str = "Momentum rotation") -> Strate
     from .strategy import Link
 
     g.links += [Link(a.id, "scores", b.id, "scores"), Link(b.id, "scores", c.id, "scores")]
-    a.layout, b.layout, c.layout = (40.0, 60.0), (300.0, 60.0), (560.0, 60.0)
+    a.layout, b.layout, c.layout = (40.0, 60.0), (336.0, 60.0), (632.0, 60.0)
     return g

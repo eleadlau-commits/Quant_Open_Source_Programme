@@ -18,9 +18,10 @@ from .datasets import DatasetService
 from .plugins import PluginManager
 from .runs import RunJob, RunService
 from .settings import RunDefaults
+from .module_folders import ModuleFolders
 
-__all__ = ["BacktestResult", "BacktestService", "Collection", "DatasetService", "RunDefaults", "RunJob", "RunService",
-           "Workspace"]
+__all__ = ["BacktestResult", "BacktestService", "Collection", "DatasetService", "ModuleFolders", "RunDefaults", "RunJob",
+           "RunService", "Workspace"]
 
 
 class Workspace:
@@ -43,6 +44,7 @@ class Workspace:
         self.library_problems: list[str] = []
         self.library_changed = Event()  # ()
         self.reload_library()
+        self.modules = ModuleFolders(self)  # make and change folders and modules in the library folder
         self.run_defaults = run_defaults or RunDefaults()
         self.run_defaults_changed = Event()  # (RunDefaults,)
         self.datasets = DatasetService(self.registry, data_root)

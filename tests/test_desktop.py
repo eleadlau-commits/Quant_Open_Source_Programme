@@ -15,6 +15,10 @@ def win(qapp, ctx):
     qapp.processEvents()
     yield w
     w.close()
+    w.deleteLater()  # so later tests don't restyle it on every theme change
+    from PySide6.QtCore import QEvent
+
+    qapp.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def test_four_pages_and_settings_in_the_corner(win):

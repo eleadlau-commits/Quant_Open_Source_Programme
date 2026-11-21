@@ -17,8 +17,9 @@ from . import icons, theme
 from . import tokens as T
 from .chart import SUB, ChartMarker, ChartSeries, TimeChart
 from .components import (
-    Canvas, Card, CodeEditor, DataTable, Details, EmptyState, ItemRow, KnobControl, Logo, ParamForm, RunButton, SearchField,
-    Segmented, StatTile, Switch, VerdictCard, badge, button, divider, hbox, label,
+    CableEnds, Canvas, Card, CodeEditor, DataTable, Details, EmptyState, ItemRow, KnobControl, KnobSpec, Logo,
+    NodeCanvasScene, NodeCanvasView, NodeSpec, ParamForm, RunButton, SearchField, Segmented, StatTile, Switch,
+    VerdictCard, badge, button, divider, hbox, label,
 )
 
 S = T.SPACE
@@ -192,6 +193,23 @@ def build() -> QWidget:
     canvas.setFixedHeight(120)
     canvas.body.addWidget(label("Modules go here", "muted"), 0, Qt.AlignCenter)
     cv.body.addWidget(canvas)
+    cv.body.addWidget(label("Node canvas: modules with ports and inline knobs, joined by cables "
+                            "(NodeCanvasScene and NodeCanvasView inside Canvas(backdrop=False)).", "caption", wrap=True))
+    nodes = Canvas(backdrop=False)
+    nodes.setFixedHeight(230)
+    scene = NodeCanvasScene(nodes)
+    scene.set_nodes([
+        NodeSpec("m1", "Momentum", "transform · m1", [], ["scores"], set(),
+                 [KnobSpec("m1.days", "days", "int", 20, 5, 120, 1)], (0, 20)),
+        NodeSpec("m2", "Top N equal weight", "decide · m2", ["scores"], [], {"scores"},
+                 [KnobSpec("m2.top", "top", "int", 5, 1, 20, 1), KnobSpec("m2.positive_only", "positive_only", "bool", True)],
+                 (320, 0)),
+    ], [CableEnds("m1", "scores", "m2", "scores")])
+    scene.nodes["m2"].setSelected(True)
+    nview = NodeCanvasView(scene)
+    nodes.body.addWidget(nview)
+    cv.body.addWidget(nodes)
+    nview.centerOn(scene.items_rect().center())
     col.addWidget(cv)
 
     # chart
