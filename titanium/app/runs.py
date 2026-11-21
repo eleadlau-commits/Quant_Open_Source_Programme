@@ -17,6 +17,7 @@ import threading
 import uuid
 from typing import Any, Callable
 
+from ..core.layers import merge_settings
 from ..core.baseline import DEFAULT_ID, HoldEverything, baseline_settings
 from ..core.run import RunRecord
 from ..core.sim import RunFailed, SimEngine
@@ -68,9 +69,10 @@ class RunService(Collection[RunRecord]):
         self._jobs: dict[str, RunJob] = {}
         self._lock = threading.Lock()
         self.started = Event()  # (run_id,)
-        # () -> settings every run starts from (Workspace sets it to its run defaults);
-        # the strategy's settings and then the run's go on top
-        self.defaults: Callable[[], dict[str, Any]] | None = None
+        # (dataset_id) -> settings every run on that dataset starts from (Workspace sets it to
+        # its run defaults, then the dataset's market defaults); the strategy's settings and
+        # then the run's go on top
+        self.defaults: Callable[[str], dict[str, Any]] | None = None
 
     def _resolve(self, strategy: str | Any) -> Any:
         if isinstance(strategy, str):
@@ -92,9 +94,7 @@ class RunService(Collection[RunRecord]):
         ds = dataset_id or self.dataset_of(strat, settings)
         cfg = dict(settings or {})
         if self.defaults is not None:
-            from .settings import merge
-
-            cfg = merge(self.defaults(), getattr(strat, "settings", None) or {}, cfg)
+            cfg = merge_settings(self.defaults(ds), getattr(strat, "settings", None) or {}, cfg)
         job = RunJob(self.engine, strat, ds, cfg, on_done=self._finished)
         with self._lock:
             self._jobs[job.id] = job

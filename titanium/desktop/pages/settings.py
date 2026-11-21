@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QTime, QUrl
+from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QTimeEdit, QVBoxLayout
+from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QVBoxLayout
 
 from ...app import paths
 from ...app.settings import EVERY, RunDefaults
@@ -119,8 +119,9 @@ class SettingsView(PageView):
 
     # ---- defaults for every run --------------------------------------------------------
     def _build_run_defaults(self) -> None:
-        card = Card("Defaults for every run", "What a new run starts with. A strategy or a backtest can change "
-                                              "any of them for itself.")
+        card = Card("Defaults for every run", "What a new run starts with, whatever the market. Decision time, "
+                                              "trading hours and costs belong to each market. A strategy or a "
+                                              "backtest can change any of them for itself.")
         d = self.workspace.run_defaults if self.workspace is not None else RunDefaults()
         grid = QGridLayout()
         grid.setHorizontalSpacing(S["xl"])
@@ -131,50 +132,28 @@ class SettingsView(PageView):
         self.every = Segmented(["Day", "Week", "Month"])
         self.every.group.button(self.every_keys.index(d.every)).setChecked(True)
         self.every.setToolTip("How often the strategy decides: every trading day, or the first of each week or month.")
-        self.decide_at = QTimeEdit(QTime.fromString(d.decide_at, "HH:mm"))
-        self.decide_at.setDisplayFormat("HH:mm")
-        self.decide_at.setFixedWidth(FIELD_WIDTH)
-        self.decide_at.setToolTip("The time the strategy decides, in the exchange's local time.")
-        self.half_spread = _number(d.half_spread_bps, 0, 1_000, decimals=2, step=0.5, suffix=" bps")
-        self.half_spread.setToolTip("Half the bid-ask spread paid on each fill, in basis points of the price.")
-        self.slippage = _number(d.slippage_bps, 0, 1_000, decimals=2, step=0.5, suffix=" bps")
-        self.slippage.setToolTip("Slippage on each fill, in basis points of the price.")
-        self.commission = _number(d.commission_per_share, 0, 10, decimals=4, step=0.001, suffix=" per share")
-        self.futures_commission = _number(d.futures_commission, 0, 100, decimals=2, step=0.05, suffix=" per side")
-        self.futures_commission.setToolTip("Commission per contract per side, in currency.")
-        self.futures_slippage = _number(d.futures_slippage_ticks, 0, 100, decimals=1, step=0.5, suffix=" ticks")
-        grid.addWidget(label("Run", "overline"), 0, 0)
-        for r, (text, w) in enumerate([("Capital", self.capital), ("Decides", self.every), ("At", self.decide_at)], 1):
+        self.max_gross = _number(d.max_gross * 100, 1, 1000, decimals=0, step=10, suffix=" %")
+        self.max_gross.setToolTip("The most the strategy may hold in total, as a share of its equity. "
+                                  "100 % means no leverage.")
+        self.min_trade = _number(d.min_trade * 100, 0, 99, decimals=2, step=0.1, suffix=" %")
+        self.min_trade.setToolTip("Skip trades smaller than this share of equity, so tiny rebalances don't pay costs.")
+        for r, (text, w) in enumerate([("Capital", self.capital), ("Decides", self.every)]):
             grid.addWidget(label(text, "label"), r, 0)
             grid.addWidget(w, r, 1)
-        grid.addWidget(label("Stock costs", "overline"), 0, 2)
-        grid.addWidget(label("Half spread", "label"), 1, 2)
-        grid.addWidget(self.half_spread, 1, 3)
-        grid.addWidget(label("Slippage", "label"), 2, 2)
-        grid.addWidget(self.slippage, 2, 3)
-        grid.addWidget(label("Commission", "label"), 3, 2)
-        grid.addWidget(self.commission, 3, 3)
-        grid.addWidget(label("Futures costs", "overline"), 4, 2)
-        grid.addWidget(label("Commission", "label"), 5, 2)
-        grid.addWidget(self.futures_commission, 5, 3)
-        grid.addWidget(label("Slippage", "label"), 6, 2)
-        grid.addWidget(self.futures_slippage, 6, 3)
+        for r, (text, w) in enumerate([("Exposure cap", self.max_gross), ("Smallest trade", self.min_trade)]):
+            grid.addWidget(label(text, "label"), r, 2)
+            grid.addWidget(w, r, 3)
         grid.setColumnStretch(4, 1)
         card.body.addLayout(grid)
-        for w in (self.capital, self.half_spread, self.slippage, self.commission, self.futures_commission,
-                  self.futures_slippage):
+        for w in (self.capital, self.max_gross, self.min_trade):
             w.valueChanged.connect(self._save_run_defaults)
         self.every.changed.connect(self._save_run_defaults)
-        self.decide_at.timeChanged.connect(self._save_run_defaults)
         self.column.addWidget(card)
 
     def run_defaults(self) -> RunDefaults:
         return RunDefaults(capital=self.capital.value(), every=self.every_keys[self.every.index()],
-                           decide_at=self.decide_at.time().toString("HH:mm"),
-                           half_spread_bps=self.half_spread.value(), slippage_bps=self.slippage.value(),
-                           commission_per_share=self.commission.value(),
-                           futures_commission=self.futures_commission.value(),
-                           futures_slippage_ticks=self.futures_slippage.value())
+                           max_gross=round(self.max_gross.value() / 100, 6),
+                           min_trade=round(self.min_trade.value() / 100, 6))
 
     def _save_run_defaults(self, *_):
         if self.ctx is not None:

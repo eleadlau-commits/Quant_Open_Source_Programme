@@ -74,8 +74,20 @@ sub-folder is a library folder and each `.py` file in it is one module: a functi
 
 ## Defaults for every run
 
-Settings > Defaults for every run sets capital, when the strategy decides (`every`,
-`decide_at`) and the cost model (stock half spread, slippage and commission; futures
-commission and slippage). They use the engine's setting names. Every run starts from
-them, then the strategy's own settings, then the run's (`workspace.runs` does this;
-`workspace.run_settings(strategy, run)` shows the result).
+A run's settings resolve in four layers, each overriding the one before
+(`core/layers.py`):
+
+1. **App defaults** (Settings > Defaults for every run, `workspace.run_defaults`): capital,
+   how often the strategy decides (`every`), the exposure cap (`max_gross`) and the smallest
+   trade (`min_trade`).
+2. **Market defaults** (`Market.defaults` in `core/markets.py`, edited by the app with
+   `workspace.set_market_defaults`): whether to trade outside the regular session
+   (`extended_hours`: Nasdaq off, CME on), the decision time (`decide_at`) and costs (stock
+   half spread, slippage and commission; futures commission and slippage). The market is
+   the traded dataset's.
+3. **Strategy settings**, saved with the strategy.
+4. **Run settings**: what a backtest changes.
+
+`workspace.runs` does this; `workspace.run_settings(strategy, run, dataset_id=...)` shows the
+result, and `layer_of` says which layer a value came from. A plugin can add a market to
+`Library.MARKETS`; `workspace.markets()` lists them all.

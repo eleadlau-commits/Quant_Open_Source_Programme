@@ -23,6 +23,8 @@ from .core.backtests import (BacktestContext, BacktestInfo, RandomPicks, Variant
                              steps_per_year, t_stat, total_growth, without)
 from .core.bars import MarketData
 from .core.data import DataKind, DatasetInfo, Frequency, Param, SourceSpec
+from .core.calendars import CmeEquityCalendar, NasdaqCalendar
+from .core.markets import Market, MarketDefaults, Session
 from .core.generators import BUILTIN_GENERATORS, RealisedVolatility
 from .core.module_library import STARTER, STARTERS, ModuleTemplate
 from .core.plugins import API_VERSION, Library
@@ -34,6 +36,8 @@ __all__ = [
     # plugins
     "API_VERSION", "Library", "Param", "Source", "SourceSpec", "DatasetInfo", "DataKind", "Frequency",
     "MarketData", "ModuleTemplate", "STARTER",
+    # markets: a plugin adds one to Library.MARKETS
+    "Market", "MarketDefaults", "Session", "NasdaqCalendar", "CmeEquityCalendar",
     # what ships with the app
     "SyntheticStocks", "SyntheticFutures", "Polygon", "Databento", "RealisedVolatility",
     "BUILTIN_GENERATORS", "STARTERS",
