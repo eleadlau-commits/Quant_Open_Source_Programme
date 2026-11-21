@@ -1,0 +1,11 @@
+{
+  "id": "synthetic-data",
+  "name": "Synthetic data",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Random-walk stock and futures minute bars, for trying strategies and testing the testers.",
+  "author": "Titanium",
+  "main": "plugin.py",
+  "provides": {"data_sources": ["synthetic_stocks", "synthetic_futures"]},
+  "requires": []
+}

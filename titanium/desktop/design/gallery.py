@@ -16,8 +16,9 @@ from PySide6.QtWidgets import (
 from . import icons, theme
 from . import tokens as T
 from .components import (
-    CableEnds, Canvas, Card, CodeEditor, KnobSpec, NodeCanvasScene, NodeCanvasView, NodeSpec, DataTable, Details, EmptyState, KnobControl, Logo, ParamForm, RunButton, SearchField, Segmented, StatTile,
-    badge, button, hbox, label,
+    CableEnds, Canvas, Card, CodeEditor, DataTable, Details, EmptyState, ItemRow, KnobControl, KnobSpec, Logo,
+    NodeCanvasScene, NodeCanvasView, NodeSpec, ParamForm, RunButton, SearchField, Segmented, StatTile, Switch, badge,
+    button, divider, hbox, label,
 )
 
 S = T.SPACE
@@ -121,8 +122,23 @@ def build() -> QWidget:
     slider = QSlider(Qt.Horizontal)
     slider.setValue(40)
     slider.setFixedWidth(200)
-    inp.body.addLayout(hbox(SearchField("Search modules"), combo, chk, slider, None, spacing=S["lg"]))
+    inp.body.addLayout(hbox(SearchField("Search modules"), combo, chk, slider, Switch(True), Switch(False), None,
+                            spacing=S["lg"]))
     col.addWidget(inp)
+
+    # list rows
+    lr = section("List rows", "ItemRow: an item in a card, with a badge, a caption, a note and a Switch on the right.")
+    on = ItemRow("Synthetic data 1.0.0", "Random-walk stock and futures minute bars.")
+    on.add_badge(badge("Built in", "neutral"))
+    on.add_control(Switch(True))
+    off = ItemRow("Bootstrap test 0.3.0", "Resamples weekly returns.")
+    off.add_badge(badge("Problem", "danger"))
+    off.set_note("Needs plugin 'out-of-sample', which is not installed.")
+    off.add_control(Switch(False))
+    lr.body.addWidget(on)
+    lr.body.addWidget(divider())
+    lr.body.addWidget(off)
+    col.addWidget(lr)
 
     # cards
     row = hbox(spacing=S["lg"])

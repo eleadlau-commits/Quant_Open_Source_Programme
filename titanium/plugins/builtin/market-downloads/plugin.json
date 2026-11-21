@@ -1,0 +1,11 @@
+{
+  "id": "market-downloads",
+  "name": "Market data downloads",
+  "version": "1.0.0",
+  "api": 1,
+  "description": "Polygon and Databento minute bars. Listed now; downloading arrives later.",
+  "author": "Titanium",
+  "main": "plugin.py",
+  "provides": {"data_sources": ["polygon", "databento"]},
+  "requires": []
+}

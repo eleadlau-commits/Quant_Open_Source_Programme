@@ -6,8 +6,10 @@ plugins add theirs the same way (their own folder, or an existing one).
 """
 from __future__ import annotations
 
+import ast
 import copy
 from dataclasses import dataclass
+from pathlib import Path
 
 from .plugins import Entry, Library, Registry
 from .strategy import Module, StrategyGraph
@@ -92,8 +94,64 @@ STARTERS = (MOMENTUM, MOVING_AVERAGE, TOP_N)
 
 
 def register_starters(registry: Registry) -> None:
+    """Add the starter folder (skipping entries already there, e.g. from the starter-modules plugin)."""
+    have = {e.name for e in registry.entries(Library.MODULES)}
     for t in STARTERS:
-        add_module(registry, STARTER, copy.deepcopy(t))
+        if f"{STARTER}/{t.name}" not in have:
+            add_module(registry, STARTER, copy.deepcopy(t))
+
+
+# ---------------------------------------------------------------- the library folder on disk
+LIBRARY_PLUGIN = "library-folder"  # the plugin id entries from the library folder carry
+
+
+def template_from_file(path: Path) -> ModuleTemplate:
+    """A library entry from a ``.py`` file holding one module function.
+
+    ``@module(kind="decide", outputs=[...], name="...")`` above the function sets what
+    it is; without it the module is a transform with one output. The docstring's first
+    line is its description.
+    """
+    code = Path(path).read_text(encoding="utf-8")
+    tree = ast.parse(code)
+    fn = next((n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))), None)
+    if fn is None:
+        raise ValueError("it has no function")
+    opts: dict = {}
+    for d in fn.decorator_list:
+        f = d.func if isinstance(d, ast.Call) else d
+        if getattr(f, "id", getattr(f, "attr", None)) == "module" and isinstance(d, ast.Call):
+            opts = {k.arg: ast.literal_eval(k.value) for k in d.keywords if k.arg in ("kind", "outputs", "name")}
+    kind = opts.get("kind", "transform")
+    if kind not in ("transform", "decide"):
+        raise ValueError(f"kind must be transform or decide, not {kind!r}")
+    outputs = list(opts.get("outputs") or ([] if kind == "decide" else ["out"]))
+    body = "\n".join(code.splitlines()[fn.lineno - 1:fn.end_lineno])  # the function only, no decorators
+    doc = (ast.get_docstring(fn) or "").strip().splitlines()
+    name = opts.get("name") or fn.name.replace("_", " ").capitalize()
+    return ModuleTemplate(name, kind, body.strip("\n") + "\n", outputs, doc[0] if doc else "")
+
+
+def load_library_folder(registry: Registry, root: Path | str | None) -> tuple[int, list[str]]:
+    """Add every module in the library folder: ``<root>/<folder>/<module>.py``.
+
+    Each sub-folder is a folder of the module library. Entries from an earlier load are
+    replaced. Returns (how many were added, problems). A missing folder adds nothing.
+    """
+    registry.remove_plugin(LIBRARY_PLUGIN)
+    if root is None or not Path(root).is_dir():
+        return 0, []
+    added, problems = 0, []
+    for folder in sorted(p for p in Path(root).iterdir() if p.is_dir() and not p.name.startswith((".", "_"))):
+        for path in sorted(folder.glob("*.py")):
+            try:
+                template = template_from_file(path)
+                registry.add(Library.MODULES, f"{folder.name}/{template.name}", template, LIBRARY_PLUGIN,
+                             template.doc)
+                added += 1
+            except (OSError, UnicodeDecodeError, SyntaxError, ValueError) as exc:
+                problems.append(f"Skipped {folder.name}/{path.name}: {exc}")
+    return added, problems
 
 
 def momentum_rotation(id: str = "S1", name: str = "Momentum rotation") -> StrategyGraph:

@@ -101,7 +101,7 @@ STARTER_FOLDER, USER_FOLDER, PLUGIN_FOLDER = "starter", "user", "plugin"
 class ModuleLibraryView(_DockPanel):
     """The module library: the starter folder, your own folders and plugins' folders, with search.
 
-    Your folders live in ``paths.app_folder() / "modules"`` (``Workspace.modules``): make,
+    Your folders live in the module library folder (set in Settings; ``Workspace.modules``): make,
     rename and delete them, and rename, move or delete the modules in them. Starter and
     plugin modules can be copied into your folders. Drag a module onto the patch bay, or
     double-click it, to add it to the strategy in front.
@@ -130,7 +130,7 @@ class ModuleLibraryView(_DockPanel):
         self._open: set[str] = {STARTER}
         ws = self.workspace()
         if ws is not None:
-            ws.modules.changed.connect(self.refresh)
+            ws.library_changed.connect(self.refresh)
         theme.watch(self, lambda v: v.refresh())  # the folder and module icons
         self.refresh()
 
@@ -193,7 +193,7 @@ class ModuleLibraryView(_DockPanel):
         return [f.child(i).data(0, ROLE)[1] for f in self._folder_items() if not f.isHidden()
                 for i in range(f.childCount()) if not f.child(i).isHidden()]
 
-    # ---- actions (each refreshes through Workspace.modules.changed)
+    # ---- actions (each refreshes through Workspace.library_changed)
     def _try(self, fn) -> object:
         try:
             out = fn()

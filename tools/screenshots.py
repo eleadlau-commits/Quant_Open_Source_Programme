@@ -93,6 +93,7 @@ def shoot(app, skin_id: str, out: Path, sample: Path | None = None) -> None:
                 settle(app)
                 win.grab().save(str(out / f"data-datasets-{mode}.png"))
                 win.close()
+            shoot_settings(app, out, mode, Path(tmp))
         g = build_gallery()
         g.resize(1280, 2200)
         g.show()
@@ -105,7 +106,7 @@ def shoot_patch_bay(app, tmp: Path, out: Path, mode: str) -> None:
     """The patch bay with the example strategy, a module selected, and a folder of your own in the library."""
     from titanium.core.module_library import STARTER, momentum_rotation
 
-    ws = Workspace(modules_root=tmp / "modules")
+    ws = Workspace(library_folder=tmp / "library")
     ws.modules.copy_to(f"{STARTER}/Momentum", "My signals")
     ctx = AppContext(QSettings(str(tmp / "s3.ini"), QSettings.IniFormat), ws)
     win = build_window(ctx)
@@ -122,6 +123,29 @@ def shoot_patch_bay(app, tmp: Path, out: Path, mode: str) -> None:
     bay.scene.nodes["m2"].setSelected(True)
     settle(app)
     win.grab().save(str(out / f"patch-bay-{mode}.png"))
+    win.close()
+
+
+def shoot_settings(app, out: Path, mode: str, tmp: Path) -> None:
+    """The whole Settings page, with a plugin of your own and one that can't load."""
+    import json
+
+    plugins = tmp / "plugins"
+    for pid, name, extra in (("neon-skin", "Neon skin", {"main": None, "provides": {}}),
+                             ("bootstrap-test", "Bootstrap test", {"main": None, "requires": ["out-of-sample"]})):
+        (plugins / pid).mkdir(parents=True, exist_ok=True)
+        (plugins / pid / "plugin.json").write_text(json.dumps({
+            "id": pid, "name": name, "version": "0.3.0", "description": {
+                "neon-skin": "A brighter signal colour for Graphite.",
+                "bootstrap-test": "Resamples weekly returns to see if the result could be luck."}[pid], **extra}))
+    ws = Workspace(plugins_folder=plugins, library_folder=tmp / "library")
+    ctx = AppContext(QSettings(str(tmp / "s3.ini"), QSettings.IniFormat), ws)
+    win = build_window(ctx)
+    win.resize(1440, 1900)
+    win.show()
+    win.show_page("settings")
+    settle(app)
+    win.grab().save(str(out / f"settings-full-{mode}.png"))
     win.close()
 
 

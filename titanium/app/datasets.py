@@ -21,11 +21,10 @@ from typing import Any, Iterable
 
 from ..core.bars import BarStore, MarketData
 from ..core.data import DataKind, DatasetInfo, Frequency, SourceSpec
-from ..core.generators import register_generators
 from ..core.guard import Guard
 from ..core.markets import MARKETS, NASDAQ
 from ..core.plugins import Library, Registry
-from ..core.sources import register_sources
+from ..core.sources import FileImport
 from .events import Event
 from .collection import Collection
 
@@ -46,8 +45,10 @@ class DatasetService(Collection[DatasetInfo]):
     def __init__(self, registry: Registry, root: Path | str | None = None) -> None:
         super().__init__()
         self.registry = registry
-        register_sources(registry)
-        register_generators(registry)
+        # File import is part of the Data page itself; every other source and generator
+        # comes from a plugin (see Workspace.plugins), so switching one off removes it.
+        if FileImport.name not in {e.name for e in registry.entries(Library.DATA_SOURCES)}:
+            registry.add(Library.DATA_SOURCES, FileImport.name, FileImport(), doc=FileImport.doc)
         self._root = Path(root) if root is not None else None
         self._store: BarStore | None = None
         self._open: dict[str, MarketData] = {}

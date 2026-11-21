@@ -27,8 +27,9 @@ A tree of folders: the app's **Starter** folder, your own folders, and folders a
 plugins, with search over names and descriptions. Drag a module onto the patch bay, or
 double-click it, to add it to the strategy in front.
 
-Your folders are directories under `Documents/Titanium/modules` (`paths.app_folder()`), one
-JSON file per module (`titanium/app/module_folders.py`, `Workspace.modules`). Make, rename and
+Your folders are the sub-folders of the module library folder (chosen in Settings;
+`Documents/Titanium/library` by default), one `.py` file per module
+(`titanium/app/module_folders.py`, `Workspace.modules`). Make, rename and
 delete folders, and rename, move (drag onto a folder) or delete your modules. Starter and
 plugin modules can't be changed, only copied into your folders. Right-click a module on the
 canvas and pick *Save to module library* to keep your own version of it.

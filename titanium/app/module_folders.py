@@ -1,26 +1,32 @@
 """Your own modules in the module library, kept in folders: ``Workspace.modules``.
 
-Each folder is a directory under ``paths.app_folder() / "modules"``, and each
-module a small JSON file in it (name, kind, outputs, doc, code). They are put in
-the registry's module library as ``"folder/name"`` entries (plugin ``"user"``),
-next to the starter folder and any plugin folders, so every page that lists
-modules sees them. Starters and plugin modules can't be changed here, only copied
-into one of your folders.
+They live in the module library folder (``Workspace.library_folder``, chosen in
+Settings; ``paths.app_folder() / "library"`` by default): one sub-folder per library
+folder, one ``.py`` file per module, read by ``core.module_library.load_library_folder``.
+This service makes, renames and deletes those folders and files, then has the
+workspace read the folder again, so every page that lists modules sees the change
+(``Workspace.library_changed``).
+
+Starters and plugin modules can't be changed here, only copied into one of your folders.
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
+import shutil
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ..core.module_library import STARTER, ModuleTemplate, add_module
-from ..core.plugins import Library, Registry
+from ..core.module_library import LIBRARY_PLUGIN, STARTER, ModuleTemplate, template_from_file
+from ..core.plugins import Library
 from ..core.strategy import Module
-from .events import Event
 
-USER = "user"  # the registry's plugin id for your modules
-FORMAT = "titanium.module"
+if TYPE_CHECKING:
+    from .workspace import Workspace
+
+USER = LIBRARY_PLUGIN  # the registry's plugin id for modules in your folders
 
 
 class ModuleFolderError(ValueError):
@@ -31,19 +37,25 @@ def _clean(name: str, what: str) -> str:
     name = " ".join(str(name).split())
     if not name:
         raise ModuleFolderError(f"the {what} needs a name")
-    if "/" in name or "\\" in name or name in (".", ".."):
-        raise ModuleFolderError(f"a {what} name can't contain / or \\")
+    if "/" in name or "\\" in name or name.startswith((".", "_")):
+        raise ModuleFolderError(f"a {what} name can't contain / or \\, or start with . or _")
     return name
 
 
 def _file_stem(name: str) -> str:
-    return re.sub(r"[^\w\- ]+", "", name).strip() or "module"
+    return re.sub(r"[^\w\- ]+", "", name).strip().replace(" ", "_").lower() or "module"
+
+
+def module_file(t: ModuleTemplate) -> str:
+    """A library module as the ``.py`` file the library folder holds."""
+    outs = json.dumps(list(t.outputs))
+    return (f"from titanium.sdk import knob, module\n\n\n"
+            f"@module(name={json.dumps(t.name, ensure_ascii=False)}, kind={json.dumps(t.kind)}, outputs={outs})\n"
+            f"{t.code.strip(chr(10))}\n")
 
 
 def template_from_module(m: Module, name: str | None = None) -> ModuleTemplate:
     """A strategy's module as a library entry (its code, kind and outputs)."""
-    import ast
-
     doc = ""
     try:
         fn = next(n for n in ast.parse(m.code).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)))
@@ -54,27 +66,29 @@ def template_from_module(m: Module, name: str | None = None) -> ModuleTemplate:
 
 
 class ModuleFolders:
-    """``root``: where the folders live. Without one (tests, scripts) a temporary folder."""
+    def __init__(self, workspace: "Workspace") -> None:
+        self.ws = workspace
 
-    def __init__(self, registry: Registry, root: Path | str | None = None) -> None:
-        self.registry = registry
-        self._root = Path(root) if root is not None else None
-        self.changed = Event()  # () after any folder or module changes
-        self.reload()
+    @property
+    def registry(self):
+        return self.ws.registry
 
     @property
     def root(self) -> Path:
-        if self._root is None:
-            self._root = Path(tempfile.mkdtemp(prefix="titanium-modules-"))
-        self._root.mkdir(parents=True, exist_ok=True)
-        return self._root
+        """The library folder (a temporary one for the session if the workspace has none)."""
+        if self.ws.library_folder is None:
+            self.ws.set_library_folder(Path(tempfile.mkdtemp(prefix="titanium-library-")))
+        self.ws.library_folder.mkdir(parents=True, exist_ok=True)
+        return self.ws.library_folder
 
     # ---- reading
     def folders(self) -> list[str]:
         """Your folders, by name."""
-        if self._root is None or not self._root.exists():
+        root = self.ws.library_folder
+        if root is None or not root.is_dir():
             return []
-        return sorted((p.name for p in self._root.iterdir() if p.is_dir()), key=str.lower)
+        return sorted((p.name for p in root.iterdir() if p.is_dir() and not p.name.startswith((".", "_"))),
+                      key=str.lower)
 
     def modules(self, folder: str) -> list[str]:
         return sorted(self._read(folder), key=str.lower)
@@ -85,31 +99,20 @@ class ModuleFolders:
 
     def _read(self, folder: str) -> dict[str, tuple[Path, ModuleTemplate]]:
         out: dict[str, tuple[Path, ModuleTemplate]] = {}
-        d = (self._root / folder) if self._root is not None else None
+        root = self.ws.library_folder
+        d = root / folder if root is not None else None
         if d is None or not d.is_dir():
             return out
-        for f in sorted(d.glob("*.json")):
+        for f in sorted(d.glob("*.py")):
             try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-                if data.get("format") != FORMAT:
-                    continue
-                t = ModuleTemplate(data["name"], data.get("kind", "transform"), data["code"],
-                                   list(data.get("outputs", [])), data.get("doc", ""))
-            except (OSError, ValueError, KeyError, TypeError):
-                continue  # a broken file never breaks the library
+                t = template_from_file(f)
+            except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
+                continue  # a broken file never breaks the library (Settings lists it)
             out.setdefault(t.name, (f, t))
         return out
 
     def reload(self) -> None:
-        """Put your modules (as saved on disk) in the registry."""
-        self.registry.remove_plugin(USER)
-        for folder in self.folders():
-            for _name, (_f, t) in self._read(folder).items():
-                try:
-                    add_module(self.registry, folder, t, USER)
-                except ValueError:  # same name as a plugin's entry: the plugin's stays
-                    pass
-        self.changed.emit()
+        self.ws.reload_library()
 
     # ---- folders
     def _check_new_folder(self, name: str) -> str:
@@ -129,10 +132,11 @@ class ModuleFolders:
     def rename_folder(self, old: str, new: str) -> str:
         if old not in self.folders():
             raise ModuleFolderError(f"no folder called “{old}”")
-        if _clean(new, "folder").lower() != old.lower():
+        new = _clean(new, "folder")
+        if new == old:
+            return old
+        if new.lower() != old.lower():
             new = self._check_new_folder(new)
-        else:
-            new = _clean(new, "folder")
         (self.root / old).rename(self.root / new)
         self.reload()
         return new
@@ -140,11 +144,10 @@ class ModuleFolders:
     def delete_folder(self, name: str) -> None:
         if name not in self.folders():
             raise ModuleFolderError(f"no folder called “{name}”")
-        if self.modules(name):
+        d = self.root / name
+        if any(d.glob("*.py")):
             raise ModuleFolderError(f"“{name}” still has modules in it. Move or delete them first")
-        for f in (self.root / name).iterdir():
-            f.unlink()
-        (self.root / name).rmdir()
+        shutil.rmtree(d)
         self.reload()
 
     # ---- modules
@@ -160,13 +163,12 @@ class ModuleFolders:
         if name in have:
             have[name][0].unlink()
         stem, n = _file_stem(name), 1
-        path = self.root / folder / f"{stem}.json"
+        path = self.root / folder / f"{stem}.py"
         while path.exists():
             n += 1
-            path = self.root / folder / f"{stem} {n}.json"
-        path.write_text(json.dumps({"format": FORMAT, "name": name, "kind": template.kind,
-                                    "outputs": list(template.outputs), "doc": template.doc,
-                                    "code": template.code}, indent=2) + "\n", encoding="utf-8")
+            path = self.root / folder / f"{stem}_{n}.py"
+        t = ModuleTemplate(name, template.kind, template.code, list(template.outputs), template.doc)
+        path.write_text(module_file(t), encoding="utf-8")
         self.reload()
         return f"{folder}/{name}"
 
@@ -192,10 +194,8 @@ class ModuleFolders:
             return entry_name
         if name in self._read(folder):
             raise ModuleFolderError(f"“{folder}” already has a module called “{name}”")
-        new = self.save(folder, t)
         path.unlink()
-        self.reload()
-        return new
+        return self.save(folder, t)
 
     def rename(self, entry_name: str, new_name: str) -> str:
         folder, name, path, t = self._mine(entry_name)

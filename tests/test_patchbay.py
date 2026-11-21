@@ -3,7 +3,7 @@ import pytest
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtTest import QTest
 
-from titanium.app.module_folders import ModuleFolderError, ModuleFolders
+from titanium.app.module_folders import ModuleFolderError
 from titanium.app.workspace import Workspace
 from titanium.core import patchbay as pb
 from titanium.core.module_library import STARTER, ModuleTemplate, momentum_rotation, register_starters
@@ -95,8 +95,8 @@ def test_modules_without_a_position_are_placed_beside_the_others():
 
 # ---------------------------------------------------------------- your module folders (no UI)
 def test_module_folders_create_rename_move_delete(tmp_path):
-    reg = _reg()
-    lib = ModuleFolders(reg, tmp_path)
+    ws = Workspace(library_folder=tmp_path)
+    lib, reg = ws.modules, ws.registry
     assert lib.folders() == []
     lib.create_folder("Signals")
     with pytest.raises(ModuleFolderError, match="already"):
@@ -107,6 +107,7 @@ def test_module_folders_create_rename_move_delete(tmp_path):
     assert entry == "Signals/Momentum" and lib.is_mine(entry)
     assert not lib.is_mine(f"{STARTER}/Momentum")
     assert reg.get(Library.MODULES, entry).code == reg.get(Library.MODULES, f"{STARTER}/Momentum").code
+    assert reg.get(Library.MODULES, entry).outputs == ["scores"]
     assert lib.copy_to(f"{STARTER}/Momentum", "Signals") == "Signals/Momentum 2"
     entry = lib.rename(entry, "Fast momentum")
     lib.create_folder("Filters")
@@ -121,23 +122,23 @@ def test_module_folders_create_rename_move_delete(tmp_path):
     assert lib.folders() == ["Signals"]
     with pytest.raises(ModuleFolderError, match="your own folders"):
         lib.delete(f"{STARTER}/Momentum")
-    # what is on disk comes back in a new session
-    reg2 = _reg()
-    ModuleFolders(reg2, tmp_path)
-    assert "Signals/Momentum 2" in [e.name for e in reg2.entries(Library.MODULES)]
+    # the files are plain .py modules, and come back in a new session
+    assert (tmp_path / "Signals" / "momentum_2.py").read_text().startswith("from titanium.sdk import")
+    ws2 = Workspace(library_folder=tmp_path)
+    assert "Signals/Momentum 2" in [e.name for e in ws2.registry.entries(Library.MODULES)]
 
 
 def test_a_broken_module_file_is_skipped(tmp_path):
     (tmp_path / "Mine").mkdir()
-    (tmp_path / "Mine" / "bad.json").write_text("{not json")
-    lib = ModuleFolders(_reg(), tmp_path)
-    assert lib.folders() == ["Mine"] and lib.modules("Mine") == []
+    (tmp_path / "Mine" / "bad.py").write_text("def broken(:\n")
+    ws = Workspace(library_folder=tmp_path)
+    assert ws.modules.folders() == ["Mine"] and ws.modules.modules("Mine") == []
 
 
-def test_workspace_keeps_user_modules_in_its_folder(tmp_path):
-    ws = Workspace(modules_root=tmp_path)
+def test_without_a_library_folder_the_session_gets_a_temporary_one():
+    ws = Workspace()
     ws.modules.save("Mine", ModuleTemplate("Hold all", "decide", "def hold_all(view):\n    return {}\n", []))
-    assert (tmp_path / "Mine").is_dir()
+    assert ws.library_folder is not None and (ws.library_folder / "Mine").is_dir()
     assert "Mine/Hold all" in [e.name for e in ws.registry.entries(Library.MODULES)]
 
 
@@ -153,7 +154,16 @@ def win(qapp, ctx, tmp_path, monkeypatch):
     w.show_page("strategies")
     qapp.processEvents()
     yield w
+    _dispose(w, qapp)
+
+
+def _dispose(w, qapp):
+    """Close and delete a window, so later tests don't restyle it on every theme change."""
+    from PySide6.QtCore import QEvent
+
     w.close()
+    w.deleteLater()
+    qapp.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def _bay(win, qapp, graph=None):
@@ -399,7 +409,7 @@ def test_module_library_folders_from_the_dock(win, ctx, qapp):
     assert [a.text() for a in menu.actions()] == ["New folder…"]
     starter_item = lib.tree.topLevelItem(0).child(0)
     assert "Copy to" in [a.text() for a in lib.build_menu(starter_item).actions()]
-    assert (ctx.workspace.modules.root / "Mine").is_dir()
+    assert (ctx.workspace.library_folder / "Mine").is_dir()
 
 
 def test_save_a_module_from_the_canvas_into_a_folder(win, ctx, qapp):
@@ -425,8 +435,11 @@ def test_dropping_a_library_module_on_the_canvas(win, ctx, qapp):
     assert bytes(data.data(MODULE_MIME)).decode() == f"{STARTER}/Momentum"
 
 
-def test_patch_bay_in_every_skin(qapp, ctx, tmp_path, monkeypatch):
+def test_patch_bay_in_every_skin(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+
     from titanium.desktop.app import build_window
+    from titanium.desktop.context import AppContext
     from titanium.desktop.design import skins, theme
 
     monkeypatch.setenv("TITANIUM_HOME", str(tmp_path / "home"))
@@ -434,12 +447,13 @@ def test_patch_bay_in_every_skin(qapp, ctx, tmp_path, monkeypatch):
         for sk in skins.available():
             for mode in ("light", "dark"):
                 theme.apply(qapp, mode, sk.id)
+                ctx = AppContext(QSettings(str(tmp_path / f"{sk.id}-{mode}.ini"), QSettings.IniFormat))
                 w = build_window(ctx)
                 w.show()
                 w.show_page("strategies")
                 w.views["strategies"].open_graph(momentum_rotation(id="S8"), view=0)
                 qapp.processEvents()
                 assert not w.grab().isNull()
-                w.close()
+                _dispose(w, qapp)
     finally:
         theme.apply(qapp, "light", skins.DEFAULT)
