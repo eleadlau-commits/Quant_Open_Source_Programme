@@ -5,51 +5,35 @@ Datasets and strategies are saved by their own sections.
 """
 from __future__ import annotations
 
-from typing import Generic, TypeVar
+from pathlib import Path
 
-from ..core.data import DatasetInfo
 from ..core.plugins import Registry
 from ..core.run import RunRecord
 from ..core.strategy import StrategyGraph
-from .events import Event
+from .collection import Collection
+from .datasets import DatasetService
 
-T = TypeVar("T")
-
-
-class Collection(Generic[T]):
-    """Objects by id, with events the views listen to."""
-
-    def __init__(self) -> None:
-        self._items: dict[str, T] = {}
-        self.added = Event()  # (id, obj)
-        self.changed = Event()  # (id, obj)
-        self.removed = Event()  # (id,)
-
-    def put(self, id: str, obj: T) -> None:
-        new = id not in self._items
-        self._items[id] = obj
-        (self.added if new else self.changed).emit(id, obj)
-
-    def get(self, id: str) -> T:
-        return self._items[id]
-
-    def remove(self, id: str) -> None:
-        if self._items.pop(id, None) is not None:
-            self.removed.emit(id)
-
-    def ids(self) -> list[str]:
-        return list(self._items)
-
-    def __contains__(self, id: object) -> bool:
-        return id in self._items
-
-    def __len__(self) -> int:
-        return len(self._items)
+__all__ = ["Collection", "DatasetService", "Workspace"]
 
 
 class Workspace:
-    def __init__(self, registry: Registry | None = None) -> None:
+    """``data_root``: the folder datasets are saved in. Without one (tests, scripts) they
+    live in a temporary folder for the session. The app passes ``paths.app_folder() / "data"``.
+    """
+
+    def __init__(self, registry: Registry | None = None, data_root: Path | str | None = None) -> None:
         self.registry = registry or Registry()
-        self.datasets: Collection[DatasetInfo] = Collection()
+        self.datasets = DatasetService(self.registry, data_root)
         self.strategies: Collection[StrategyGraph] = Collection()
         self.runs: Collection[RunRecord] = Collection()
+        self.strategies.added.connect(self._strategy_changed)
+        self.strategies.changed.connect(self._strategy_changed)
+
+    def _strategy_changed(self, strategy_id: str, graph: StrategyGraph) -> None:
+        """A strategy lists the datasets it uses in ``settings["datasets"]``; keep ``used_by`` in step."""
+        settings = getattr(graph, "settings", None) or {}
+        ids = settings.get("datasets")
+        if ids is None and settings.get("dataset"):
+            ids = [settings["dataset"]]
+        if ids is not None:
+            self.datasets.sync_strategy(strategy_id, ids)
