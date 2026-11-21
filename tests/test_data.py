@@ -239,3 +239,33 @@ def test_file_import_reads_minute_daily_and_complementary(tmp_path):
     assert s.index[0] == pd.Timestamp("2025-03-03 21:00", tz="UTC")  # date-only values are known at the close
     v = Guard(comp, ny(d, "15:00"))
     assert v.series("sentiment", "xnas:AAPL").empty
+
+
+def test_datasets_save_in_a_fresh_process_with_qt_loaded(tmp_path):
+    """Regression: on Python 3.15 with Qt loaded first, pyarrow's thread pool was an
+    unresolved lazy import and adding a dataset failed with "'lazy_import' object is not
+    callable". Run in a clean process, as the app does, so nothing has resolved it yet."""
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent(f"""
+        import threading
+        from PySide6.QtWidgets import QApplication
+        app = QApplication([])
+        from titanium.app.workspace import Workspace
+        ws = Workspace(data_root={str(tmp_path)!r})
+        errors = []
+        def job():
+            try:
+                for source in ("synthetic_futures", "synthetic_stocks"):
+                    ws.datasets.build(source, {{"n_days": 5}})
+            except Exception as e:
+                errors.append(repr(e))
+        t = threading.Thread(target=job)
+        t.start(); t.join()
+        print(errors or "ok")
+    """)
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=180,
+                         env={**__import__("os").environ, "QT_QPA_PLATFORM": "offscreen"})
+    assert out.stdout.strip().endswith("ok"), out.stdout + out.stderr

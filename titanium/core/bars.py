@@ -133,6 +133,16 @@ def daily_frame(df: pd.DataFrame, market: Market) -> pd.DataFrame:
 Frame = pd.DataFrame | Callable[[], pd.DataFrame]
 
 
+
+def _write_parquet(frame: pd.DataFrame, path: Path) -> None:
+    """``frame.to_parquet(path)``, converting columns on this thread. pyarrow otherwise uses
+    concurrent.futures.ThreadPoolExecutor, which on Python 3.15 can still be an unresolved
+    lazy import there ("'lazy_import' object is not callable")."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    pq.write_table(pa.Table.from_pandas(frame, nthreads=1), path)
+
 class MarketData:
     """The data of one or more datasets: minute and daily bars per instrument, and series.
 
@@ -309,7 +319,7 @@ class BarStore:
             sub = folder / section
             sub.mkdir(parents=True, exist_ok=True)
             fname = _file_key(name) + ".parquet"
-            frame.to_parquet(sub / fname)
+            _write_parquet(frame, sub / fname)
             index[section][name] = fname
             digest.update(section.encode() + name.encode())
             digest.update(pd.util.hash_pandas_object(frame, index=True).values.tobytes())
