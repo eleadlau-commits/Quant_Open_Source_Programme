@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core.measurements import register_measurements
 from ..core.module_library import load_library_folder
 from ..core.plugins import Registry
 from ..core.strategy import StrategyGraph
@@ -34,6 +35,7 @@ class Workspace:
                  plugins_folder: Path | str | None = None, library_folder: Path | str | None = None,
                  run_defaults: RunDefaults | None = None) -> None:
         self.registry = registry if registry is not None else Registry()
+        register_measurements(self.registry)  # part of the app, not a plugin; plugins add more
         self.plugins = PluginManager(self.registry, user_folder=plugins_folder)
         self.plugins.load()
         self.library_folder: Path | None = Path(library_folder) if library_folder is not None else None

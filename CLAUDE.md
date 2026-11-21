@@ -25,7 +25,7 @@ Pages never import each other and never reach into the engine.
 - Follow `docs/design-language.md`: no blue fills, red means live, one signal-gradient
   edge per area, glow only on the Run button, mono numbers.
 - Build UI from `desktop/design/components.py` (Card, StatTile, EmptyState, Segmented,
-  RunButton, Canvas, the node canvas, button variants, badge, label roles). Need something new? Add it to the kit and the
+  RunButton, Canvas, the node canvas, button variants, badge, label roles), plus `TimeChart` in `design/chart.py`. Need something new? Add it to the kit and the
   gallery first, then use it.
 - Icons: `desktop/design/icons.py`, recoloured through `theme.watch` on theme change.
 - One primary button per area. Sentence case. Plain words in labels and help.
