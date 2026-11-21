@@ -1,7 +1,8 @@
-"""Design tokens: the only place colours, type sizes, spacing and radii are defined.
+"""Design tokens: type sizes, spacing and control sizes shared by every skin, and the
+shapes of a skin (Palette, Effects, Skin).
 
-Distilled from the Titanium prototype: warm neutral greys, ink black, the logo's
-muted red as the brand accent, and blue for actions and selection.
+Colours, radii, fonts and effects come from skin packs (``design/packs/*.toml``,
+loaded by :mod:`skins`). UI code never names a colour: it asks ``theme.current()``.
 """
 from __future__ import annotations
 
@@ -26,15 +27,16 @@ TYPE = Type()
 
 # ---- space and shape ----------------------------------------------------
 SPACE = {"xxs": 2, "xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "xxl": 32}
-RADIUS = {"sm": 4, "md": 6, "lg": 8, "xl": 12}
+RADIUS = {"sm": 4, "md": 6, "lg": 8, "xl": 12}  # the Classic skin's radii; use theme.radius() in UI code
 NAV_WIDTH = 76
 CONTROL_HEIGHT = 30
 
 
 # ---- colour -------------------------------------------------------------
+# The values live in skin packs (design/packs/*.toml); see skins.py.
 @dataclass(frozen=True)
 class Palette:
-    name: str
+    name: str  # "light" or "dark"
     window: str  # the app background
     surface: str  # cards, panels, editors
     surface_alt: str  # hovered rows, inset areas
@@ -46,9 +48,11 @@ class Palette:
     text_muted: str
     text_faint: str
     ink: str  # the logo's black (white in dark mode)
-    brand: str  # the logo's muted red
+    ink_hover: str
+    on_ink: str
+    brand: str  # the logo's muted red: the "live" signal
     brand_soft: str
-    primary: str  # actions and selection
+    primary: str  # focus and selection (a fill only in skins whose effects say so)
     primary_hover: str
     primary_soft: str
     on_primary: str
@@ -56,30 +60,41 @@ class Palette:
     warning: str
     danger: str
     series: tuple[str, ...]  # chart lines, in order
+    surface_top: str  # top of a panel's gradient (same as surface when flat)
+    highlight: str  # the 1px light catch on a panel's top edge
+    glow: str  # colour of the glow around the Run button
+    accent_2: str  # second stop of the signal gradient (red into amber)
 
 
-LIGHT = Palette(
-    name="light",
-    window="#f3f3f1", surface="#ffffff", surface_alt="#f7f7f5", sunken="#f0f0ed", nav="#ebebe7",
-    border="#e3e3de", border_strong="#c8c8c3",
-    text="#1d1d1b", text_muted="#6b6b66", text_faint="#9a9a94",
-    ink="#111418", brand="#b4635e", brand_soft="#f4e6e5",
-    primary="#2f5bd3", primary_hover="#264cb5", primary_soft="#e6ecfb", on_primary="#ffffff",
-    success="#1f8a4c", warning="#b7791f", danger="#c0392b",
-    series=("#2f5bd3", "#b4635e", "#1f8a4c", "#b7791f", "#7b3fb0", "#2a8c9a"),
-)
+@dataclass(frozen=True)
+class Effects:
+    """How a skin dresses the same components. Every field has a plain default."""
 
-DARK = Palette(
-    name="dark",
-    window="#1b1b1a", surface="#232321", surface_alt="#2a2a28", sunken="#181817", nav="#151514",
-    border="#30302d", border_strong="#45453f",
-    text="#e8e8e3", text_muted="#a3a39c", text_faint="#6f6f69",
-    ink="#f1f1ec", brand="#d08a84", brand_soft="#3a2726",
-    primary="#4a7cf0", primary_hover="#6690f5", primary_soft="#1f2a44", on_primary="#ffffff",
-    success="#4cc27e", warning="#e0b062", danger="#ff6b5e",
-    series=("#6690f5", "#d08a84", "#4cc27e", "#e0b062", "#b38cf0", "#5cc3d1"),
-)
+    panel_gradient: bool = False  # panels shade from surface_top to surface
+    top_highlight: bool = False  # panels catch a light edge on top
+    glow: float = 0.0  # 0 to 1: glow around the Run button (QGraphicsDropShadowEffect, Run only)
+    canvas: str = "none"  # backdrop for canvases: none, dots, lines
+    nav_marker: str = "tile"  # active page in the rail: tile, dot
+    primary: str = "fill"  # primary buttons: fill (solid primary) or edge (raised, signal-gradient border)
+    run: str = "fill"  # the Run button: fill (like primary) or capsule (pill with a signal border)
+    numbers: str = "ui"  # stat figures: ui or mono
 
 
-def palette(dark: bool) -> Palette:
-    return DARK if dark else LIGHT
+@dataclass(frozen=True)
+class Skin:
+    """A skin pack: light and dark palettes plus shape, fonts and effects."""
+
+    id: str
+    name: str
+    description: str
+    light: Palette
+    dark: Palette
+    radius: dict
+    ui_fonts: tuple[str, ...]
+    mono_fonts: tuple[str, ...]
+    effects: Effects
+    qss: str = ""  # optional extra style sheet; $token placeholders take palette and radius values
+    source: str = ""  # where it was loaded from ("" = built in)
+
+    def palette(self, dark: bool) -> Palette:
+        return self.dark if dark else self.light

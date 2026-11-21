@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QComboBox, QFormLayout, QGridLayout
 
-from ..design import theme
+from ...app import paths
+from ..design import skins, theme
 from ..design import tokens as T
 from ..design.components import Card, badge, button, hbox, label
 from ..views import DOCK, PAGE
@@ -43,6 +44,29 @@ class SettingsView(PageView):
         look.body.addLayout(form)
         self.column.addWidget(look)
 
+        self.skin_card = Card("Skin", "The look of the whole app, in light and dark. Add your own as .toml files "
+                                      "in the skins folder, or from a plugin.")
+        sform = QFormLayout()
+        sform.setHorizontalSpacing(S["xl"])
+        self.skin_box = QComboBox()
+        self.skin_box.setFixedWidth(260)
+        for sk in skins.available():
+            self.skin_box.addItem(sk.name, sk.id)
+        current = theme.skin().id
+        if self.ctx is not None:
+            current = self.ctx.settings.value("view/skin", current)
+        self.skin_box.setCurrentIndex(max(0, self.skin_box.findData(current)))
+        self.skin_box.currentIndexChanged.connect(self._skin)
+        sform.addRow(label("Skin", "label"), self.skin_box)
+        self.skin_about = label("", "caption", wrap=True)
+        sform.addRow(label("", "label"), self.skin_about)
+        self.skin_card.body.addLayout(sform)
+        self.skin_card.body.addWidget(label(f"Skins folder: {paths.skins_folder()}", "caption", wrap=True))
+        self.skin_problems = label("", "caption", wrap=True)
+        self.skin_card.body.addWidget(self.skin_problems)
+        self._describe_skin()
+        self.column.addWidget(self.skin_card)
+
         self.layout_card = Card("Layout", "Every panel can be a page or a dock. Pages fill the main area; "
                                           "docks sit beside the current page.")
         self.layout_grid = QGridLayout()
@@ -62,13 +86,27 @@ class SettingsView(PageView):
         self.column.addStretch()
 
     def subtitle(self) -> str:
-        return "Appearance, layout, libraries and plugins."
+        return "Appearance, skin, layout, libraries and plugins."
 
     def _theme(self, _i: int) -> None:
         mode = self.theme_box.currentData()
         if self.ctx is not None:
             self.ctx.settings.setValue("view/theme", mode)
             self.ctx.theme_changed.emit(mode)
+
+    def _skin(self, _i: int) -> None:
+        skin_id = self.skin_box.currentData()
+        if self.ctx is not None:
+            self.ctx.settings.setValue("view/skin", skin_id)
+            self.ctx.skin_changed.emit(skin_id)
+        self._describe_skin()
+
+    def _describe_skin(self) -> None:
+        sk = skins.get(self.skin_box.currentData())
+        self.skin_about.setText(sk.description)
+        issues = skins.problems()
+        self.skin_problems.setText("\n".join(issues))
+        self.skin_problems.setVisible(bool(issues))
 
     def show_layout(self, shell) -> None:
         """Fill the Layout card from the shell (called once the window exists, and on every move)."""

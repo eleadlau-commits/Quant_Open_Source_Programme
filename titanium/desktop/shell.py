@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from .context import AppContext
 from .design import icons, theme
 from .design import tokens as T
-from .design.components import Logo, label
+from .design.components import Logo, label, paint_nav_marker
 from .views import DOCK, PAGE, View, ViewRegistry
 
 S = T.SPACE
@@ -41,6 +41,10 @@ class NavButton(QToolButton):
     def retheme(self):
         p = theme.current()
         self.setIcon(icons.icon(self.icon_name, p.text_muted, p.text, size=22))
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        paint_nav_marker(self)  # the skin's active-page marker, if it has one
 
 
 class DockTitle(QWidget):

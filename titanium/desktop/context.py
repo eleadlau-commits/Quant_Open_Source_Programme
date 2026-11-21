@@ -15,6 +15,7 @@ class AppContext:
     workspace: Workspace = field(default_factory=Workspace)
     open_page: Event = field(default_factory=Event)  # (view_id,): a view asks the shell to show a page
     theme_changed: Event = field(default_factory=Event)  # (mode,)
+    skin_changed: Event = field(default_factory=Event)  # (skin_id,)
     layout_changed: Event = field(default_factory=Event)  # (view_id, host)
 
     @classmethod

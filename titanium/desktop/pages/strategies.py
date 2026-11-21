@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QMenu, QStackedWidget, QTabBar, QTabWidget, QToolB
 from ...core.strategy import StrategyGraph
 from ..design import icons, theme
 from ..design import tokens as T
-from ..design.components import EmptyState, Segmented, badge, button, hbox, label
+from ..design.components import Canvas, EmptyState, RunButton, Segmented, badge, button, hbox, label
 from ..views import View
 
 S = T.SPACE
@@ -33,11 +33,17 @@ class StrategyTab(QWidget):
         lay.setContentsMargins(S["xl"], S["lg"], S["xl"], S["xl"])
         lay.setSpacing(S["lg"])
         self.switch = Segmented([name for name, _, _ in STRATEGY_VIEWS])
-        self.run_btn = button("Run", "primary", "play", "Run this strategy (Ctrl+Enter)")
+        self.run_btn = RunButton("Run", "Ctrl ↵", "Run this strategy (Ctrl+Enter)")
         lay.addLayout(hbox(self.switch, badge("Empty strategy"), None, self.run_btn))
         self.views = QStackedWidget()
-        for name, icon, text in STRATEGY_VIEWS:
-            self.views.addWidget(EmptyState(icon, name, text))
+        for i, (name, icon, text) in enumerate(STRATEGY_VIEWS):
+            empty = EmptyState(icon, name, text)
+            if i == 0:  # the patch bay is a canvas
+                canvas = Canvas()
+                canvas.body.addWidget(empty)
+                self.views.addWidget(canvas)
+            else:
+                self.views.addWidget(empty)
         lay.addWidget(self.views, 1)
         self.switch.changed.connect(self.views.setCurrentIndex)
 
