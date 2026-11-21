@@ -1,6 +1,7 @@
 """Strategies page: one tab per strategy, each with Patch bay, Code and Run views.
 
-The Code view is built (Phase 1C); the patch bay and Run views follow in Phase 2.
+The patch bay (Phase 2D) and the Code view (Phase 1C) both edit the one strategy
+graph through ``Workspace.strategies``; the Run view follows in Phase 2.
 """
 from __future__ import annotations
 
@@ -19,8 +20,9 @@ from ...core.strategy import StrategyGraph, load_strategy, save_strategy
 from ...core.strategy_code import import_python
 from ..design import icons, theme
 from ..design import tokens as T
-from ..design.components import Canvas, EmptyState, RunButton, Segmented, badge, button, hbox, label
+from ..design.components import EmptyState, RunButton, Segmented, badge, button, hbox
 from ..views import View
+from .patchbay import PatchBay
 from .strategy_code import CodeView
 
 S = T.SPACE
@@ -47,18 +49,22 @@ class StrategyTab(QWidget):
         lay.addLayout(hbox(self.switch, self.badge, None, self.run_btn))
         self.views = QStackedWidget()
         for i, (name, icon, text) in enumerate(STRATEGY_VIEWS):
-            if i == 0:  # the patch bay is a canvas
-                canvas = Canvas()
-                canvas.body.addWidget(EmptyState(icon, name, text))
-                self.views.addWidget(canvas)
+            if i == 0:
+                self.patch = PatchBay(graph, workspace)
+                self.views.addWidget(self.patch)
             elif i == 1:
                 self.code = CodeView(graph, workspace)
                 self.views.addWidget(self.code)
             else:
                 self.views.addWidget(EmptyState(icon, name, text))
         lay.addWidget(self.views, 1)
-        self.switch.changed.connect(self.views.setCurrentIndex)
+        self.switch.changed.connect(self._switch_to)
         self.code.graph_changed.connect(self._set_graph)
+        self.patch.graph_changed.connect(self._set_graph)
+        self.patch.show_code.connect(self.show_code)
+        if workspace is None:  # no workspace to carry changes: hand them over directly
+            self.code.graph_changed.connect(self.patch.set_graph)
+            self.patch.graph_changed.connect(lambda g: self.code._on_changed(g.id, g))
         if workspace is not None:
             workspace.strategies.changed.connect(self._on_changed)
         self._set_graph(graph)
@@ -71,7 +77,19 @@ class StrategyTab(QWidget):
         """Stop following the workspace (the tab is closing)."""
         if self.workspace is not None:
             self.workspace.strategies.changed.disconnect(self._on_changed)
-            self.code.detach()
+        self.code.detach()
+        self.patch.detach()
+
+    def _switch_to(self, i: int) -> None:
+        if i != 1 and self.views.currentIndex() == 1:
+            self.code.read_back()  # carry over what was typed a moment ago
+        self.views.setCurrentIndex(i)
+
+    def show_code(self, module_id: str) -> None:
+        """Switch to the Code view with the cursor on a module's function."""
+        if self.code.read_back():
+            self.switch.set_index(1)
+            self.code.show_module(module_id)
 
     def _set_graph(self, graph: StrategyGraph) -> None:
         self.graph = graph

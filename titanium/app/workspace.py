@@ -14,21 +14,26 @@ from ..core.strategy import StrategyGraph
 from .collection import Collection
 from .events import Event
 from .datasets import DatasetService
+from .module_folders import ModuleFolders
 
-__all__ = ["Collection", "DatasetService", "Workspace"]
+__all__ = ["Collection", "DatasetService", "ModuleFolders", "Workspace"]
 
 
 class Workspace:
     """``data_root``: the folder datasets are saved in. Without one (tests, scripts) they
     live in a temporary folder for the session. The app passes ``paths.app_folder() / "data"``.
+    ``modules_root``: where your module library folders live (``paths.app_folder() / "modules"``
+    in the app; a temporary folder without one).
     """
 
-    def __init__(self, registry: Registry | None = None, data_root: Path | str | None = None) -> None:
+    def __init__(self, registry: Registry | None = None, data_root: Path | str | None = None,
+                 modules_root: Path | str | None = None) -> None:
         if registry is None:
             registry = Registry()
             register_starters(registry)
         self.registry = registry
         self.datasets = DatasetService(self.registry, data_root)
+        self.modules = ModuleFolders(self.registry, modules_root)
         self.strategies: Collection[StrategyGraph] = Collection()
         self.runs: Collection[RunRecord] = Collection()
         self.strategies.added.connect(self._strategy_changed)
