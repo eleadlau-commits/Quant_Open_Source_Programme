@@ -66,7 +66,7 @@ def self_test(win: MainWindow) -> list[str]:
     if win.views.get("data") is not None:
         win.show_page("data")
     statuses = {st.id: st for st in win.ctx.workspace.plugins.statuses()}
-    for name in ("synthetic-data", "starter-modules", "market-downloads", "realised-volatility"):
+    for name in ("synthetic-data", "starter-modules", "market-downloads", "realised-volatility", "honest-tests"):
         st = statuses.get(name)
         if st is None or not (st.on or st.switched_off):
             problems.append(f"built-in plugin {name} did not load" + (f": {st.reason}" if st else ""))
