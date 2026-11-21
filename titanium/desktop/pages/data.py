@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QComboBox, QFileDialog, QListWidget, QListWidgetIt
 
 from ...app.datasets import DataKind, DatasetInUse, DatasetInfo, Frequency
 from .. import tasks
+from ..market_text import hours_text, market_text, tz_name
 from ..design import tokens as T
 from ..design.components import (
     Card, DataTable, Details, Dialog, EmptyState, ParamForm, SearchField, Segmented, badge, button, hbox, label,
@@ -74,7 +75,13 @@ class DataView(PageView):
         self.search = SearchField("Search datasets")
         self.search.setFixedWidth(260)
         self.search.textChanged.connect(lambda _t: self.refresh())
-        self.column.addLayout(hbox(self.filter, None, self.search))
+        self.market_filter = QComboBox()
+        self.market_filter.setToolTip("Show datasets of one market")
+        self.market_filter.addItem("All markets", None)
+        for mid, m in (self.ctx.workspace.markets() if self.ctx is not None else {}).items():
+            self.market_filter.addItem(m.short, mid)
+        self.market_filter.currentIndexChanged.connect(lambda _i: self.refresh())
+        self.column.addLayout(hbox(self.filter, None, self.market_filter, self.search))
 
         self.stack = PageStack()
         self.empty = EmptyState(
@@ -87,7 +94,7 @@ class DataView(PageView):
         body = QWidget()
         split = hbox(spacing=S["lg"])
         body.setLayout(split)
-        self.table = DataTable(["Name", "Kind", "Contents", "Range", "Size", "Used by"], stretch=0)
+        self.table = DataTable(["Name", "Kind", "Market", "Contents", "Range", "Size", "Used by"], stretch=0)
         self.table.selected.connect(self.show_details)
         split.addWidget(self.table, 3)
         self.details = DatasetCard(self)
@@ -102,7 +109,7 @@ class DataView(PageView):
             for ev in (self.service.added, self.service.changed, self.service.removed):
                 ev.connect(lambda *_: self.refresh())
             ws = self.ctx.workspace
-            for ev in (ws.strategies.added, ws.strategies.changed, ws.strategies.removed):
+            for ev in (ws.strategies.added, ws.strategies.changed, ws.strategies.removed, ws.market_defaults_changed):
                 ev.connect(lambda *_: self.refresh())
         self.refresh()
 
@@ -129,6 +136,9 @@ class DataView(PageView):
             return []
         kind = FILTERS[self.filter.index()]
         items = self.service.infos(kind)
+        market = self.market_filter.currentData()
+        if market:
+            items = [i for i in items if i.market == market]
         q = self.search.text().strip().lower()
         if q:
             items = [i for i in items if q in i.name.lower() or any(q in s.lower() for s in i.instruments)]
@@ -147,7 +157,7 @@ class DataView(PageView):
             self.stack.setCurrentWidget(self.no_match)
             return
         self.stack.setCurrentIndex(1)
-        rows = [(i.name, KIND_NAME[i.kind], self.contents(i, short=True), self.range_text(i, short=True),
+        rows = [(i.name, KIND_NAME[i.kind], self.market_of(i).short, self.contents(i, short=True), self.range_text(i, short=True),
                  human_size(i.size_bytes), self.users_text(i)) for i in items]
         keys = [i.id for i in items]
         self.table.set_rows(rows, keys)
@@ -177,11 +187,17 @@ class DataView(PageView):
         if short:
             return f"{a:%Y-%m-%d} to {b:%Y-%m-%d}"
         fmt = "%d %b %Y %H:%M" if info.frequency is Frequency.MINUTE else "%d %b %Y"
-        return f"{a.strftime(fmt).lstrip('0')} to {b.strftime(fmt).lstrip('0')}, {self._tz_name(tz)} time"
+        return f"{a.strftime(fmt).lstrip('0')} to {b.strftime(fmt).lstrip('0')}, {tz_name(tz)} time"
 
-    @staticmethod
-    def _tz_name(tz) -> str:
-        return str(tz).split("/")[-1].replace("_", " ")
+    def market_of(self, info: DatasetInfo):
+        """The dataset's market, with the app's edits to its defaults."""
+        markets = self.ctx.workspace.markets()
+        return markets.get(info.market) or self.service.market(info.id)
+
+    def market_text(self, info: DatasetInfo) -> str:
+        """The market's name, its sessions in local time, time zone and currency, and the hours runs trade."""
+        m = self.market_of(info)
+        return f"{market_text(m)}\nRuns trade {hours_text(m)} unless a strategy says otherwise."
 
     def strategy_name(self, sid: str) -> str:
         ws = self.ctx.workspace
@@ -324,6 +340,7 @@ class DatasetCard(Card):
         rows = [
             ("Source", p.source_text(info)),
             ("Contents", p.contents(info) + (f"\n{listed}" if listed else "")),
+            ("Market", self._market_row(info)),
             ("Fields", ", ".join(info.fields) or "None"),
             ("Range", p.range_text(info)),
             ("Used by", used),
@@ -331,6 +348,19 @@ class DatasetCard(Card):
         ]
         self.fields.set_rows(rows)
         self.generate.setVisible(info.kind is DataKind.CORE)
+
+    def _market_row(self, info: DatasetInfo) -> QWidget:
+        p = self.page
+        box = QWidget()
+        col = QVBoxLayout(box)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(S["xs"])
+        self.market = label(p.market_text(info), wrap=True)
+        col.addWidget(self.market)
+        link = button("Market settings", "ghost", tip="Sessions, holidays and defaults for this market")
+        link.clicked.connect(lambda: p.ctx is not None and p.ctx.open_page.emit("settings"))
+        col.addLayout(hbox(link, None))
+        return box
 
 
 class AddDatasetDialog(Dialog):
@@ -344,12 +374,31 @@ class AddDatasetDialog(Dialog):
         self.sources = [s for s in page.service.sources()]
         self.list = QListWidget()
         self.list.setFixedWidth(240)
+        self._picked: str | None = None
+        self.row_of: dict[str, int] = {}  # source name -> list row (market headings take rows too)
+        markets = page.ctx.workspace.markets() if page.ctx is not None else {}
+        groups: dict[str, list] = {}
         for s in self.sources:
-            item = QListWidgetItem(s.title + ("" if getattr(s, "available", True) else "  (coming later)"))
-            item.setToolTip(getattr(s, "doc", ""))
-            if not getattr(s, "available", True):
-                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-            self.list.addItem(item)
+            key = "" if getattr(s, "any_market", False) else getattr(getattr(s, "market", None), "id", "")
+            groups.setdefault(key, []).append(s)
+        order = [m for m in markets if m in groups] + [k for k in groups if k and k not in markets]
+        order += [""] if "" in groups else []
+        for key in order:
+            heading = QListWidgetItem(markets[key].name if key in markets else (key or "Any market"))
+            heading.setFlags(Qt.NoItemFlags)
+            heading.setData(Qt.UserRole, None)
+            f = heading.font()
+            f.setBold(True)
+            heading.setFont(f)
+            self.list.addItem(heading)
+            for s in groups[key]:
+                item = QListWidgetItem("   " + s.title + ("" if getattr(s, "available", True) else "  (coming later)"))
+                item.setToolTip(getattr(s, "doc", ""))
+                item.setData(Qt.UserRole, s.name)
+                if not getattr(s, "available", True):
+                    item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                self.row_of[s.name] = self.list.count()
+                self.list.addItem(item)
         self.forms = PageStack()
         self.form_for: dict[str, ParamForm] = {}
         self.docs: dict[str, str] = {}
@@ -367,21 +416,38 @@ class AddDatasetDialog(Dialog):
         col.addWidget(right, 1)
         self.body.addLayout(col)
         self.list.currentRowChanged.connect(self._pick)
-        start = next((i for i, s in enumerate(self.sources) if s.name == source), 0)
-        if not getattr(self.sources[start], "available", True):
-            start = next((i for i, s in enumerate(self.sources) if getattr(s, "available", True)), 0)
-        self.list.setCurrentRow(start)
+        ready = [s.name for s in self.sources if getattr(s, "available", True)]
+        start = source if source in ready else (ready[0] if ready else self.sources[0].name)
+        self.list.setCurrentRow(self.row_of[start])
         self.ok.clicked.connect(self.submit)
 
     def current(self):
-        return self.sources[self.list.currentRow()]
+        return next(s for s in self.sources if s.name == self._picked)
+
+    def market_note(self, s) -> str:
+        """What market the source's data follows, in a sentence."""
+        if getattr(s, "any_market", False):
+            return "You choose the market." if s.name == "file_import" else "Several markets."
+        m = getattr(s, "market", None)
+        if m is None:
+            return ""
+        if self.page.ctx is not None:
+            m = self.page.ctx.workspace.markets().get(m.id, m)
+        return f"Makes {m.short} data: {m.name}, {tz_name(m.tz)} time, {m.currency}."
 
     def _pick(self, row: int) -> None:
-        if row < 0:
+        item = self.list.item(row) if row >= 0 else None
+        if item is None or item.data(Qt.UserRole) is None:  # a market heading: stay on the source picked
+            if getattr(self, "_picked", None) is not None:
+                self.list.blockSignals(True)
+                self.list.setCurrentRow(self.row_of[self._picked])
+                self.list.blockSignals(False)
             return
-        s = self.sources[row]
+        self._picked = item.data(Qt.UserRole)
+        s = self.current()
         self.forms.setCurrentWidget(self.form_for[s.name])
-        self.doc.setText(getattr(s, "doc", ""))
+        note = self.market_note(s)
+        self.doc.setText(getattr(s, "doc", "") + (f"\n\n{note}" if note else ""))
         self.ok.setEnabled(getattr(s, "available", True))
         self.ok.setText("Import" if s.name == "file_import" else "Add dataset")
         self.set_error("")
