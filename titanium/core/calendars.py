@@ -5,6 +5,7 @@ look-ahead. ``NasdaqCalendar`` follows the US equity market rules used by NYSE
 and Nasdaq since 1998: the ten full-day holidays (with weekend observance), Good
 Friday, Juneteenth from 2022, the 13:00 early closes, and the one-off closures
 (national days of mourning, storms) listed in ``SPECIAL_CLOSURES``.
+``CmeEquityCalendar`` follows CME Globex for US equity index futures (NQ, MNQ, ES).
 """
 from __future__ import annotations
 
@@ -129,7 +130,11 @@ class NasdaqCalendar:
     # ---- additions ------------------------------------------------------------
     def holiday(self, day: date) -> str | None:
         """Why the market is closed on a weekday, or ``None``."""
-        return us_equity_holidays(day.year).get(day)
+        return self.holidays(day.year).get(day)
+
+    def holidays(self, year: int) -> dict[date, str]:
+        """Weekdays without a trading day in ``year``, with why."""
+        return {d: why for d, why in sorted(us_equity_holidays(year).items()) if d.weekday() < 5}
 
     def local_close(self, day: date) -> time:
         return self.early_close(day) or self.close_time
@@ -157,3 +162,35 @@ class NasdaqCalendar:
     def sessions(self, start: date, end: date) -> list[tuple[date, datetime, datetime]]:
         """(day, open UTC, close UTC) for each trading day from ``start`` to ``end``."""
         return [(d, self.session_open(d), self.session_close(d)) for d in self.trading_days(start, end)]
+
+
+# CME closes Globex outright on these; on the other US holidays it halts early and doesn't settle.
+CME_FULL_CLOSURES = ("New Year's Day", "Good Friday", "Christmas Day")
+CME_EARLY_CLOSE = time(13, 15)  # 12:15 Chicago time on the day after Thanksgiving, July 3 and December 24
+CME_HOLIDAY_HALT = time(13, 0)
+
+
+class CmeEquityCalendar(NasdaqCalendar):
+    """CME Globex trading days for US equity index futures.
+
+    A trading day here is a day CME settles. CME settles on the same days the US equity
+    market trades: on New Year's Day, Good Friday and Christmas Globex is closed; on the
+    other US holidays it trades until 13:00 New York time and those trades count toward
+    the next trading day. On the US equity early-close days CME's equity products close at
+    13:15 New York time (12:15 in Chicago), not 13:00.
+
+    Not modelled: years when CME opened briefly on Good Friday for a jobs report, and the
+    shortened sessions on days of national mourning (both counted as no trading day).
+    """
+
+    def early_close(self, day: date) -> time | None:
+        return CME_EARLY_CLOSE if super().early_close(day) is not None else None
+
+    def holidays(self, year: int) -> dict[date, str]:
+        out = {}
+        for d, why in super().holidays(year).items():
+            if why in CME_FULL_CLOSURES or why in SPECIAL_CLOSURES.values():
+                out[d] = f"{why}: closed"
+            else:
+                out[d] = f"{why}: halts at {CME_HOLIDAY_HALT:%H:%M}, no settlement"
+        return out

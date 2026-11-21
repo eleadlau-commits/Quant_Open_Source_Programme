@@ -242,15 +242,13 @@ def test_user_plugins_load_next_to_the_builtins(tmp_path):
 
 # ---- run defaults and the library folder ------------------------------------------------------
 def test_run_defaults_read_back_and_apply():
-    d = RunDefaults.from_dict({"capital": "250000", "half_spread_bps": None, "slippage_bps": "x", "every": "week"})
+    d = RunDefaults.from_dict({"capital": "250000", "max_gross": None, "min_trade": "x", "every": "week",
+                               "half_spread_bps": "9"})  # an older version's cost key is ignored here
     assert d == RunDefaults(capital=250_000, every="week")
     cfg = d.apply({"capital": 5, "costs": {"equity": {"slippage_bps": 9}}}, {"decide_at": "10:00"})
     assert cfg["capital"] == 5 and cfg["every"] == "week" and cfg["decide_at"] == "10:00"
-    assert cfg["costs"]["equity"] == {"half_spread_bps": 5.0, "slippage_bps": 9, "commission_per_share": 0.0}
-    assert cfg["costs"]["futures"]["commission_per_side"] == 0.85
-    from titanium.core.sim.costs import CostModel
-    assert CostModel.from_settings(cfg["costs"]).equity.slippage_bps == 9  # the engine reads them as they are
-    for bad in ({"capital": 0}, {"every": "weekly"}, {"decide_at": "25:00"}, {"slippage_bps": -1}):
+    assert cfg["max_gross"] == 1.0 and cfg["min_trade"] == 0.0
+    for bad in ({"capital": 0}, {"every": "weekly"}, {"max_gross": 0}, {"min_trade": 1}):
         with pytest.raises(ValueError):
             RunDefaults(**bad)
     ws = Workspace()
@@ -261,7 +259,8 @@ def test_run_defaults_read_back_and_apply():
     assert heard == [d] and ws.run_settings({"capital": 9})["capital"] == 9
 
 
-def test_runs_start_from_the_run_defaults():
+def test_runs_start_from_the_run_defaults_then_the_market():
+    from titanium.core.markets import MarketDefaults
     from titanium.core.module_library import momentum_rotation
 
     ws = Workspace()
@@ -269,13 +268,16 @@ def test_runs_start_from_the_run_defaults():
     g = momentum_rotation()
     g.settings.pop("every", None)
     g.settings.update({"dataset": info.id, "capital": 50_000})
-    ws.set_run_defaults(RunDefaults(capital=1_000, every="week", slippage_bps=7))
+    ws.set_run_defaults(RunDefaults(capital=1_000, every="week", max_gross=0.8))
+    ws.set_market_defaults("xnas", MarketDefaults(slippage_bps=7, decide_at="15:00"))
     job = ws.runs.prepare(g, {"decide_at": "15:30"})
     assert job.settings["capital"] == 50_000  # the strategy's own setting wins over the default
-    assert job.settings["every"] == "week" and job.settings["decide_at"] == "15:30"
-    assert job.settings["costs"]["equity"]["slippage_bps"] == 7
+    assert job.settings["every"] == "week" and job.settings["max_gross"] == 0.8
+    assert job.settings["decide_at"] == "15:30"  # the run's wins over the market's
+    assert job.settings["costs"]["equity"]["slippage_bps"] == 7  # the market's edited default
+    assert job.settings["extended_hours"] is False
     record = job.execute()
-    assert record.capital == 50_000
+    assert record.capital == 50_000 and record.settings["costs"]["equity"]["slippage_bps"] == 7
 
 
 def test_the_library_folder_adds_modules_by_folder(tmp_path):

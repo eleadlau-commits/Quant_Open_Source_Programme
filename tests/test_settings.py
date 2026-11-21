@@ -41,21 +41,40 @@ def test_the_page_keeps_its_cards(page):
 
 
 def test_run_defaults_are_saved_and_reach_the_workspace(page, ctx, home):
-    from PySide6.QtCore import QTime
-
     page.capital.setValue(250_000)
-    page.commission.setValue(0.005)
     page.every.set_index(1)
-    page.decide_at.setTime(QTime(10, 30))
-    page.futures_slippage.setValue(2)
-    want = RunDefaults(capital=250_000, commission_per_share=0.005, every="week", decide_at="10:30",
-                       futures_slippage_ticks=2)
+    page.max_gross.setValue(150)
+    page.min_trade.setValue(0.5)
+    want = RunDefaults(capital=250_000, every="week", max_gross=1.5, min_trade=0.005)
     assert ctx.workspace.run_defaults == want
     assert ctx.workspace.run_settings()["every"] == "week"
     # a new session reads them back into its workspace
     again = AppContext(QSettings(str(home / "settings.ini"), QSettings.IniFormat), Workspace())
     assert again.workspace.run_defaults == want
     assert SettingsView(again).capital.value() == 250_000
+
+
+def test_market_defaults_are_saved_and_old_run_costs_move_to_markets(home):
+    from titanium.core.markets import NASDAQ, MarketDefaults
+
+    path = str(home / "old.ini")
+    old = QSettings(path, QSettings.IniFormat)
+    for k, v in {"capital": 5e4, "decide_at": "10:30", "slippage_bps": 9.0, "futures_slippage_ticks": 2.0}.items():
+        old.setValue(f"run/{k}", v)
+    old.sync()
+    ctx = AppContext(QSettings(path, QSettings.IniFormat), Workspace())
+    ws = ctx.workspace
+    assert ws.run_defaults.capital == 5e4
+    xnas, cme = ws.market("xnas").defaults, ws.market("cme").defaults
+    assert xnas.decide_at == cme.decide_at == "10:30" and xnas.slippage_bps == 9 and cme.futures_slippage_ticks == 2
+    assert xnas.extended_hours is False and cme.extended_hours is True  # each market keeps its own
+    assert not ctx.settings.contains("run/slippage_bps")
+    ctx.save_market_defaults("xnas", MarketDefaults(half_spread_bps=2))
+    again = AppContext(QSettings(path, QSettings.IniFormat), Workspace())
+    assert again.workspace.market("xnas").defaults == MarketDefaults(half_spread_bps=2)
+    again.save_market_defaults("xnas", None)
+    assert AppContext(QSettings(path, QSettings.IniFormat), Workspace()).workspace.market("xnas").defaults == \
+        NASDAQ.defaults
 
 
 def test_every_plugin_is_listed_with_a_switch(page, ctx):

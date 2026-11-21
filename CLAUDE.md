@@ -51,7 +51,7 @@ Pages never import each other and never reach into the engine.
 - Plugins add entries to libraries via a manifest; removing one never breaks others.
   The loader is `app/plugins.py` (`workspace.plugins`); built-ins live in
   `titanium/plugins/builtin`; plugin code imports only `titanium.sdk`. See `docs/plugins.md`.
-- Run defaults (capital, schedule, costs) come from `workspace.run_defaults`; runs start from them, then the strategy's settings, then the run's.
+- Run settings resolve in layers (`core/layers.py`): app defaults (`workspace.run_defaults`: capital, schedule, exposure cap, smallest trade), then the traded market's defaults (`Market.defaults`: sessions traded, decision time, costs; edited via `workspace.set_market_defaults`), then the strategy's settings, then the run's.
 
 ## Working
 

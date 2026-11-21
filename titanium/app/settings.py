@@ -1,49 +1,46 @@
-"""Settings the app layer needs: defaults for every run, and where the module library lives.
+"""Settings the app layer needs: defaults for every run, market defaults, and where the module library lives.
 
 The desktop app saves these in its settings store and hands them to the workspace
-(``Workspace.run_defaults``, ``Workspace.library_folder``). The run service starts every
-run from them: defaults, then the strategy's own settings, then the run's. No Qt here.
+(``Workspace.run_defaults``, ``Workspace.set_market_defaults``, ``Workspace.library_folder``).
+A run's settings resolve in layers (``core/layers.py``): the app's run defaults, then the
+traded market's defaults (with the app's edits), then the strategy's settings, then the run's.
+No Qt here.
 """
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields, replace
 from typing import Any
 
+from ..core.layers import merge_settings
+from ..core.markets import MARKETS, MarketDefaults
+
 EVERY = {"day": "Every day", "week": "Every week", "month": "Every month"}  # the engine's ``every``
 
 
 @dataclass(frozen=True)
 class RunDefaults:
-    """What a new run starts with unless the strategy or the run says otherwise.
+    """App-wide values a new run starts with unless the market, strategy or run says otherwise.
 
-    The names follow the engine's settings (``core/sim``): ``capital`` (notional
-    starting cash), ``every`` and ``decide_at`` (when the strategy decides, exchange
-    local time), and the cost model: for stocks the half spread and slippage in basis
-    points of the price plus a commission per share; for futures a commission per
-    contract per side and slippage in ticks.
+    ``capital`` (notional starting cash), ``every`` (how often the strategy decides),
+    ``max_gross`` (the exposure cap, as a fraction of equity) and ``min_trade`` (skip target
+    trades smaller than this fraction of equity). Decision time, sessions and costs depend on
+    the venue, so they are market defaults (``core/markets.py``).
     """
 
     capital: float = 100_000.0
     every: str = "day"
-    decide_at: str = "15:50"
-    half_spread_bps: float = 5.0
-    slippage_bps: float = 3.0
-    commission_per_share: float = 0.0
-    futures_commission: float = 0.85
-    futures_slippage_ticks: float = 1.0
+    max_gross: float = 1.0
+    min_trade: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.capital > 0:
             raise ValueError("capital must be more than zero")
-        costs = (self.half_spread_bps, self.slippage_bps, self.commission_per_share, self.futures_commission,
-                 self.futures_slippage_ticks)
-        if any(c < 0 for c in costs):
-            raise ValueError("costs can't be negative")
         if self.every not in EVERY:
             raise ValueError(f"every must be one of {', '.join(EVERY)}")
-        h, _, m = self.decide_at.partition(":")
-        if not (h.isdigit() and m.isdigit() and int(h) < 24 and int(m) < 60):
-            raise ValueError(f"decide_at must look like 15:50, not {self.decide_at!r}")
+        if not 0 < self.max_gross <= 10:
+            raise ValueError("the exposure cap must be more than zero and at most 10")
+        if not 0 <= self.min_trade < 1:
+            raise ValueError("the smallest trade must be from 0 to less than 1 (a fraction of equity)")
 
     def to_dict(self) -> dict[str, Any]:
         """Flat, for saving."""
@@ -64,30 +61,31 @@ class RunDefaults:
 
     def engine_settings(self) -> dict[str, Any]:
         """These defaults as the engine reads them."""
-        return {
-            "capital": self.capital, "every": self.every, "decide_at": self.decide_at,
-            "costs": {"equity": {"half_spread_bps": self.half_spread_bps, "slippage_bps": self.slippage_bps,
-                                 "commission_per_share": self.commission_per_share},
-                      "futures": {"commission_per_side": self.futures_commission,
-                                  "slippage_ticks": self.futures_slippage_ticks}},
-        }
+        return {"capital": self.capital, "every": self.every, "max_gross": self.max_gross,
+                "min_trade": self.min_trade}
 
     def apply(self, *layers: dict[str, Any] | None) -> dict[str, Any]:
-        """A run's settings: these defaults, then each layer on top (strategy, then run).
-        ``costs`` merge key by key, so a strategy can change one cost and keep the rest."""
-        return merge(self.engine_settings(), *layers)
+        """These defaults, then each layer on top (market, strategy, run)."""
+        return merge_settings(self.engine_settings(), *layers)
 
 
-def merge(base: dict[str, Any], *layers: dict[str, Any] | None) -> dict[str, Any]:
-    out = dict(base)
-    for layer in layers:
-        for k, v in (layer or {}).items():
-            if k == "costs" and isinstance(v, dict) and isinstance(out.get(k), dict):
-                costs = {**out[k]}
-                for part, value in v.items():
-                    costs[part] = ({**costs[part], **value} if isinstance(value, dict)
-                                   and isinstance(costs.get(part), dict) else value)
-                out[k] = costs
-            else:
-                out[k] = v
+merge = merge_settings  # older name
+
+# Before markets had defaults, decision time and costs were run defaults. ``migrate_run_settings``
+# moves saved values of these into each market's defaults: stock costs to markets of stocks,
+# futures costs to markets of futures, the decision time to both.
+OLD_RUN_KEYS = ("decide_at", "half_spread_bps", "slippage_bps", "commission_per_share", "futures_commission",
+                "futures_slippage_ticks")
+
+
+def migrate_run_settings(saved: dict[str, Any] | None) -> dict[str, MarketDefaults]:
+    """Market defaults (by market id) holding what an older version saved as run defaults.
+
+    Only markets the old values change are returned; an empty dict means nothing to move."""
+    old = {k: v for k, v in (saved or {}).items() if k in OLD_RUN_KEYS and v not in (None, "")}
+    out: dict[str, MarketDefaults] = {}
+    for mid, market in MARKETS.items():
+        new = MarketDefaults.from_dict(old, market.defaults)
+        if new != market.defaults:
+            out[mid] = new
     return out

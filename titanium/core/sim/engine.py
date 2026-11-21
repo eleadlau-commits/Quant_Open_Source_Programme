@@ -15,11 +15,12 @@ Each step at decision time ``t``:
    at the next bar's open; if that gaps up, cash may dip slightly below zero, which is
    allowed and logged.
 
-Settings (the strategy's ``graph.settings``, overridden by the run's ``settings``):
+Settings (the traded market's defaults, then the strategy's ``graph.settings``, then the run's
+``settings``; see :mod:`titanium.core.layers`):
 ``decide_at``, ``every``, ``start``, ``end`` (see :mod:`.clock`), ``capital``
 (100,000), ``costs`` (see :mod:`.costs`), ``max_gross`` (1.0), ``min_trade`` (skip target trades smaller than this
 fraction of equity, 0), ``extended_hours``
-(stocks: regular session only by default), ``datasets`` (extra datasets the strategy
+(the market's default: Nasdaq regular session only, CME round the clock), ``datasets`` (extra datasets the strategy
 reads, e.g. news or features) and ``probes`` (module ids, or ``"module.port"``, whose
 outputs are recorded every step).
 
@@ -36,6 +37,7 @@ from typing import Any, Callable
 
 from ..data import LookAheadError
 from ..instruments import InstrumentKind
+from ..layers import merge_settings
 from ..orders import Order, OrderType, Side
 from ..portfolio import PortfolioState
 from ..run import RunRecord
@@ -105,6 +107,8 @@ class SimEngine:
             version = lambda i: getattr(self.provider.get(i), "version", "")  # noqa: E731
         feed = DatasetFeed(self.provider, ids)
         data = feed.data
+        # the market's defaults sit under the strategy's settings and the run's
+        cfg = merge_settings(data.market.defaults.settings(), graph_settings, settings)
         capital = float(cfg.get("capital", DEFAULT_CAPITAL))
         record = RunRecord(
             id=run_id or f"run-{uuid.uuid4().hex[:8]}",

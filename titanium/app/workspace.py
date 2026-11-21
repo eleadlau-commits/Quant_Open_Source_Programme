@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core.markets import MARKETS, Market, MarketDefaults
 from ..core.measurements import register_measurements
 from ..core.module_library import load_library_folder
-from ..core.plugins import Registry
+from ..core.plugins import Library, Registry
 from ..core.strategy import StrategyGraph
 from .backtests import BacktestResult, BacktestService
 from .collection import Collection
@@ -50,7 +51,9 @@ class Workspace:
         self.datasets = DatasetService(self.registry, data_root)
         self.strategies: Collection[StrategyGraph] = Collection()
         self.runs = RunService(self.datasets, self.strategies)
-        self.runs.defaults = lambda: self.run_defaults.engine_settings()
+        self.market_defaults: dict[str, MarketDefaults] = {}  # the app's edits, by market id
+        self.market_defaults_changed = Event()  # (market_id, MarketDefaults)
+        self.runs.defaults = lambda ds: self.run_settings(dataset_id=ds)
         self.backtests = BacktestService(self.registry, self.runs, self.strategies)
         self.strategies.added.connect(self._strategy_changed)
         self.strategies.changed.connect(self._strategy_changed)
@@ -63,9 +66,41 @@ class Workspace:
             self.run_defaults = defaults
             self.run_defaults_changed.emit(defaults)
 
-    def run_settings(self, *layers: dict | None) -> dict:
-        """The settings a run starts with: the run defaults, then each layer (strategy, run)."""
-        return self.run_defaults.apply(*layers)
+    def run_settings(self, *layers: dict | None, market: str | None = None, dataset_id: str | None = None) -> dict:
+        """The settings a run starts with: the run defaults, then the market's defaults (the
+        ``market`` given, or ``dataset_id``'s), then each layer (strategy, run)."""
+        if market is None and dataset_id is not None and dataset_id in self.datasets:
+            market = self.datasets.get(dataset_id).market
+        known = self.markets()
+        base = known[market].defaults.settings() if market in known else {}
+        return self.run_defaults.apply(base, *layers)
+
+    # ---- markets: built in, or added by plugins; the app can edit their defaults -------
+    def markets(self) -> dict[str, Market]:
+        """Every market by id, with the app's edits to its defaults."""
+        out = dict(MARKETS)
+        for entry in self.registry.entries(Library.MARKETS):
+            if isinstance(entry.obj, Market):
+                out.setdefault(entry.obj.id, entry.obj)
+        return {mid: m.with_defaults(self.market_defaults[mid]) if mid in self.market_defaults else m
+                for mid, m in out.items()}
+
+    def market(self, market_id: str) -> Market:
+        try:
+            return self.markets()[market_id]
+        except KeyError:
+            raise KeyError(f"no market {market_id!r} (known: {', '.join(self.markets())})") from None
+
+    def set_market_defaults(self, market_id: str, defaults: MarketDefaults | None) -> None:
+        """Change a market's defaults for every run from now on; ``None`` goes back to the market's own."""
+        before = self.market(market_id).defaults
+        if defaults is None:
+            self.market_defaults.pop(market_id, None)
+        else:
+            self.market_defaults[market_id] = defaults
+        after = self.market(market_id).defaults
+        if after != before:
+            self.market_defaults_changed.emit(market_id, after)
 
     def set_library_folder(self, folder: Path | str | None) -> None:
         self.library_folder = Path(folder) if folder else None
