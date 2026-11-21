@@ -9,15 +9,15 @@ from pathlib import Path
 
 from ..core.module_library import load_library_folder
 from ..core.plugins import Registry
-from ..core.run import RunRecord
 from ..core.strategy import StrategyGraph
 from .collection import Collection
 from .events import Event
 from .datasets import DatasetService
 from .plugins import PluginManager
+from .runs import RunJob, RunService
 from .settings import RunDefaults
 
-__all__ = ["Collection", "DatasetService", "RunDefaults", "Workspace"]
+__all__ = ["Collection", "DatasetService", "RunDefaults", "RunJob", "RunService", "Workspace"]
 
 
 class Workspace:
@@ -43,7 +43,7 @@ class Workspace:
         self.run_defaults_changed = Event()  # (RunDefaults,)
         self.datasets = DatasetService(self.registry, data_root)
         self.strategies: Collection[StrategyGraph] = Collection()
-        self.runs: Collection[RunRecord] = Collection()
+        self.runs = RunService(self.datasets, self.strategies)
         self.strategies.added.connect(self._strategy_changed)
         self.strategies.changed.connect(self._strategy_changed)
         self.focused_strategy: str | None = None  # the strategy whose tab is in front
