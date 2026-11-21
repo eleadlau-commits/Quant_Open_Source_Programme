@@ -23,10 +23,14 @@ from ..core.bars import BarStore, MarketData
 from ..core.data import DataKind, DatasetInfo, Frequency, SourceSpec
 from ..core.generators import register_generators
 from ..core.guard import Guard
+from ..core.markets import MARKETS, NASDAQ
 from ..core.plugins import Library, Registry
 from ..core.sources import register_sources
 from .events import Event
 from .collection import Collection
+
+
+__all__ = ["DataKind", "DatasetInUse", "DatasetInfo", "DatasetService", "Frequency"]
 
 
 class DatasetInUse(RuntimeError):
@@ -71,7 +75,9 @@ class DatasetService(Collection[DatasetInfo]):
 
     # ---- what can be added ----------------------------------------------------------
     def sources(self) -> list:
-        return [e.obj for e in self.registry.entries(Library.DATA_SOURCES)]
+        """Data sources, ready ones first, in their preferred order."""
+        objs = [e.obj for e in self.registry.entries(Library.DATA_SOURCES)]
+        return sorted(objs, key=lambda o: (not getattr(o, "available", True), getattr(o, "order", 50)))
 
     def source(self, name: str):
         return self.registry.get(Library.DATA_SOURCES, name)
@@ -107,6 +113,10 @@ class DatasetService(Collection[DatasetInfo]):
         ids = [dataset_ids] if isinstance(dataset_ids, str) else list(dataset_ids)
         data = self.open(ids[0]).combine(*(self.open(i) for i in ids[1:]))
         return Guard(data, as_of)
+
+    def market(self, dataset_id: str):
+        """The market (calendar, time zone) a dataset follows."""
+        return MARKETS.get(self.get(dataset_id).market, NASDAQ)
 
     def dependents(self, dataset_id: str) -> list[str]:
         """Generated datasets made from this one."""

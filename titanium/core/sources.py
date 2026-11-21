@@ -34,6 +34,7 @@ class Source:
     doc = ""
     params: list[Param] = []
     available = True
+    order = 50  # position in the add dialog
     market: Market = NASDAQ
 
     def resolve(self, spec: SourceSpec | dict[str, Any] | None = None) -> dict[str, Any]:
@@ -75,6 +76,7 @@ class SyntheticStocks(Source):
     > 0 plants a known edge (stocks that gap up keep drifting up), which it should find.
     """
 
+    order = 10
     name = "synthetic_stocks"
     title = "Synthetic stocks"
     doc = "Random-walk Nasdaq minute bars. No edge unless you plant one."
@@ -164,6 +166,7 @@ class SyntheticFutures(Source):
     range breakout edge and ``trend_strength`` a persistent daily drift.
     """
 
+    order = 20
     name = "synthetic_futures"
     title = "Synthetic futures"
     doc = "Random-walk Nasdaq futures (MNQ) minute bars, nearly round the clock. No edge unless planted."
@@ -253,6 +256,7 @@ class FileImport(Source):
     day's close, so they cannot leak into the same day's decisions.
     """
 
+    order = 30
     name = "file_import"
     title = "Import files"
     doc = "Parquet or CSV files on this computer, copied into the data folder."
@@ -384,12 +388,14 @@ class Download(Source):
 
 
 class Polygon(Download):
+    order = 80
     name = "polygon"
     title = "Polygon"
     doc = "US stock minute bars from Polygon.io. Coming later."
 
 
 class Databento(Download):
+    order = 90
     name = "databento"
     title = "Databento"
     doc = "US stock and futures minute bars from Databento. Coming later."

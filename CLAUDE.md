@@ -37,7 +37,12 @@ Pages never import each other and never reach into the engine.
 ## Core rules carried over from the prototype
 
 - Timestamps are timezone-aware, stored in UTC, shown in the market's local time.
-- Strategy code only sees a guarded view pinned to the decision time.
+- Strategy code only sees a guarded view pinned to the decision time (`core/guard.py`,
+  get one with `workspace.datasets.view(ids, as_of)`). Minute bars are indexed by their
+  start and visible once ended; daily bars come from regular-session minutes and are
+  visible from their session close; series are indexed by the time each value became known.
+- Calendars are rule-based (`core/calendars.py`), never inferred from data.
+- Datasets live in `paths.app_folder() / "data"` as Parquet plus `catalogue.json`.
 - One simulation engine. Measurements and backtests read run records; backtests may
   re-run the same engine with changed settings.
 - Cash is real currency in the ledger (notional capital); results are shown normalised.
