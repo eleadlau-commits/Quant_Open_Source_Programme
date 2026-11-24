@@ -373,3 +373,26 @@ def test_panels_menu_shows_and_hides_docks_and_remembers(win, ctx, qapp):
     win.set_panel_shown("module_library", True)
     assert win.current == "strategies" and win.docks["module_library"].isVisible()
     assert "module_library" not in win._saved_hidden()
+
+
+def test_wrapped_text_is_never_squeezed(qapp):
+    """A wrapped label keeps the height its text needs, so a short container scrolls instead of
+    cutting text off mid-line (the Data details pane used to slice its ticker list)."""
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    from titanium.desktop.design.components import label, scrolling
+
+    text = ", ".join(f"SYN{i:03d}" for i in range(40))
+    lbl = label(text, wrap=True)
+    box = QWidget()
+    QVBoxLayout(box).addWidget(lbl)
+    area = scrolling(box)
+    area.resize(160, 60)  # far shorter than the text
+    area.show()
+    qapp.processEvents()
+    assert lbl.height() >= lbl.heightForWidth(lbl.width()) > 60
+    assert area.verticalScrollBar().maximum() > 0  # it scrolls rather than clips
+    lbl.setText("short")
+    qapp.processEvents()
+    assert lbl.minimumHeight() < 30 and area.verticalScrollBar().maximum() == 0  # and lets go for less text
+    area.close()
