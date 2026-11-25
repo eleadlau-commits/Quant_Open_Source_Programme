@@ -5,8 +5,12 @@ Datasets and strategies are saved by their own sections.
 """
 from __future__ import annotations
 
+import re
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
+from ..core.default_strategy import is_default
 from ..core.markets import MARKETS, Market, MarketDefaults
 from ..core.measurements import register_measurements
 from ..core.module_library import load_library_folder
@@ -22,7 +26,19 @@ from .settings import RunDefaults
 from .module_folders import ModuleFolders
 
 __all__ = ["BacktestResult", "BacktestService", "Collection", "DatasetService", "ModuleFolders", "RunDefaults", "RunJob",
+           "StrategyFootprint",
            "RunService", "Workspace"]
+
+
+@dataclass(frozen=True)
+class StrategyFootprint:
+    """What deleting a strategy takes with it."""
+    runs: int
+    backtests: int
+    running: int  # runs and tests of it still going (deleting cancels them)
+
+
+_NUMBERED = re.compile(r"Strategy (\d+)")
 
 
 class Workspace:
@@ -119,6 +135,54 @@ class Workspace:
         if id != self.focused_strategy:
             self.focused_strategy = id
             self.strategy_focused.emit(id)
+
+    # ---- strategies: ids, names, deleting ---------------------------------------------
+    def new_strategy_id(self) -> str:
+        """A key for a new strategy, never shown and never reused, so a new strategy can't pick
+        up the runs of an old one that had the same number."""
+        while True:
+            sid = f"s-{uuid.uuid4().hex[:8]}"
+            if sid not in self.strategies and not self.runs.records(sid):
+                return sid
+
+    def new_strategy_name(self) -> str:
+        """"Strategy N" with the lowest N no open strategy is called (names free up when closed)."""
+        taken = set()
+        for sid in self.strategies.ids():
+            m = _NUMBERED.fullmatch(self.strategies.get(sid).name.strip())
+            if m:
+                taken.add(int(m.group(1)))
+        n = 1
+        while n in taken:
+            n += 1
+        return f"Strategy {n}"
+
+    def strategy_footprint(self, strategy_id: str) -> StrategyFootprint:
+        run_ids = [r.id for r in self.runs.records(strategy_id)]
+        tests = sum(len(self.backtests.results(r)) for r in run_ids)
+        running = len(self.runs.active_for(strategy_id)) + len(self.backtests.active_for(run_ids))
+        return StrategyFootprint(len(run_ids), tests, running)
+
+    def delete_strategy(self, strategy_id: str) -> StrategyFootprint:
+        """Delete a strategy for good: cancel what of it is still going, then remove its runs, their
+        backtest results, and the strategy (which frees its data). The default strategy's
+        yardstick runs are shared by every strategy and stay. Returns what was removed."""
+        if is_default(strategy_id):
+            raise ValueError("the default strategy can't be deleted")
+        gone = self.strategy_footprint(strategy_id)
+        self.runs.deleted.add(strategy_id)  # anything of it that finishes later is dropped
+        run_ids = [r.id for r in self.runs.records(strategy_id)]
+        for job in self.runs.active_for(strategy_id):
+            self.runs.cancel(job)
+        for job in self.backtests.active_for(run_ids):
+            self.backtests.cancel(job)
+        for rid in run_ids:
+            self.backtests.forget(rid)
+            self.runs.remove(rid)
+        self.strategies.remove(strategy_id)
+        if self.focused_strategy == strategy_id:
+            self.focus_strategy(None)
+        return gone
 
     def _strategy_changed(self, strategy_id: str, graph: StrategyGraph) -> None:
         """A strategy lists the datasets it uses in ``settings["datasets"]``; keep ``used_by`` in step."""
