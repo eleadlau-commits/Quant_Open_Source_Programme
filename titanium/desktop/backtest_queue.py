@@ -6,6 +6,11 @@ Shared by the Backtests page and the Run view's backtest block:
     queue.result.connect(show)            # a BacktestResult, already committed to workspace.backtests
     queue.start(run_id, ["bootstrap", "cost_stress"])   # params: the strategy's own, unless given
     queue.stop()                          # cancels the test running now and drops the rest
+
+In the app, tests run in the backtest worker process (``Workspace.backtest_worker``), so the
+window stays smooth while they compute; where the worker can't be used (it failed to
+start, or ``use_worker`` is off) they run on a thread as before. Tests run inline with
+``background=False``.
 """
 from __future__ import annotations
 
@@ -26,6 +31,8 @@ class BacktestQueue(QObject):
         super().__init__(parent)
         self.workspace = workspace
         self.background = background  # tests and screenshots run inline
+        self.use_worker = True  # in the worker process when it can be started, else on a thread
+        self.worker = None  # the worker running the current job, if it runs in one
         self.todo: list[tuple[str, str, dict[str, Any] | None]] = []
         self.job = None
         self.done = 0
@@ -56,10 +63,18 @@ class BacktestQueue(QObject):
         if self.job is None:
             self._next()
 
+    def _worker(self):
+        if not (self.background and self.use_worker):
+            return None
+        get = getattr(self.workspace, "backtest_worker", None)
+        return get() if get is not None else None
+
     def stop(self) -> None:
         self.todo.clear()
         if self.job is not None:
             self.workspace.backtests.cancel(self.job.id)
+            if self.worker is not None:
+                self.worker.cancel_current()
 
     def _next(self) -> None:
         while self.todo:
@@ -71,22 +86,54 @@ class BacktestQueue(QObject):
                 continue
             self.job = job
             self.started.emit(run_id, test_id, self.done + 1, self.total)
+            worker = self._worker()
+            if worker is not None:
+                try:
+                    worker.submit(job.id, self.workspace.backtests.payload(job, self.workspace.plugins.switched_off()))
+                except Exception as e:  # noqa: BLE001 - e.g. a run that can't be sent: run it here instead
+                    worker.problem = f"{type(e).__name__}: {e}"
+                    worker = None
+            self.worker = worker
+            self._poll.setInterval(50 if worker is not None else 150)
             self._poll.start()
-            tasks.run(job.execute, lambda res, job=job: self._finished(job, res),
-                      lambda e, job=job: self._failed(job, e), self.background)
+            if worker is None:
+                tasks.run(job.execute, lambda res, job=job: self._finished(job, res),
+                          lambda e, job=job: self._failed(job, e), self.background)
             return
         self.job = None
         self._poll.stop()
         self.idle.emit()
 
     def _tick(self) -> None:
-        if self.job is not None:
-            self.progress.emit(self.job.test_id, self.job.fraction)
+        if self.job is None:
+            return
+        if self.worker is not None:
+            self._from_worker(self.job, self.worker)
+            return
+        self.progress.emit(self.job.test_id, self.job.fraction)
+
+    def _from_worker(self, job, worker) -> None:
+        for event in worker.poll():
+            kind, jid = event[0], event[1]
+            if jid != job.id:
+                continue
+            if kind == "progress":
+                job.fraction = event[2]
+                self.progress.emit(job.test_id, job.fraction)
+            elif kind == "result":
+                self.workspace.backtests.finish_remote(job, event[3])
+                self._finished(job, event[2])
+                return
+            else:  # the worker failed or stopped: show it as the test's result
+                self.workspace.backtests.finish_remote(job)
+                self._finished(job, self.workspace.backtests.failed_result(job, event[2]))
+                return
 
     def _finished(self, job, res) -> None:
         if job is not self.job:
             return
         self.job = None
+        self.worker = None
         self.done += 1
         self.workspace.backtests.commit(res)
         self.result.emit(res)
@@ -96,5 +143,6 @@ class BacktestQueue(QObject):
         if job is not self.job:
             return
         self.job = None
+        self.worker = None
         self.done += 1
         self._next()

@@ -114,6 +114,18 @@ class DatasetService(Collection[DatasetInfo]):
             self._open[dataset_id] = self.store.open(dataset_id, info.name)
         return self._open[dataset_id]
 
+    def adopt(self, info: DatasetInfo) -> None:
+        """Know a dataset another process saved (the backtest worker gets each job's datasets
+        this way). A different version drops the copy opened before. Nothing is announced or saved."""
+        old = self._items.get(info.id)
+        if old is not None and old.version != info.version:
+            self._open.pop(info.id, None)
+        self._items[info.id] = info
+
+    def close(self, dataset_id: str) -> None:
+        """Let go of an opened dataset's data (it is read again when next used)."""
+        self._open.pop(dataset_id, None)
+
     def view(self, dataset_ids: str | Iterable[str], as_of) -> Guard:
         """A guarded view over one or more datasets (the first sets the market)."""
         ids = [dataset_ids] if isinstance(dataset_ids, str) else list(dataset_ids)

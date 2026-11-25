@@ -80,3 +80,26 @@ block both use it.
 
 Writing tests and measurements inside the app comes later; the library dialogs on both pages are
 where those editors will open.
+
+## Where backtests run
+
+In the desktop app every backtest runs in one worker process (`app/backtest_worker.py`,
+`Workspace.backtest_worker()`), started a moment after the app opens and kept for the
+session. Python runs one thread's Python code at a time, so a backtest on a thread took
+turns with the window's drawing; in its own process it doesn't, and the window stays
+smooth while a long test runs. While tests run, only the backtest section freezes
+(`BusyOverlay(section, live=True)`).
+
+- The worker opens datasets from the data folder itself and keeps them open (closed after
+  10 idle minutes); each job sends only the run, the strategy's earlier runs, the default
+  strategy's run if there is one, the dataset infos and which plugins are off
+  (`BacktestService.payload`). It runs the same `BacktestService` and simulator; the result
+  and any default-strategy run it made come back and are committed on the UI thread.
+- Cancel sets a flag the simulator checks every step. A worker that hasn't stopped 5 s
+  after Cancel, or that dies, is ended: the test shows as stopped or failed, and the next
+  test starts a fresh worker.
+- If the worker can't be started (some machines don't let an app start a copy of itself),
+  tests run on a thread as before. `BacktestQueue.use_worker = False` does the same.
+- Frozen builds call `multiprocessing.freeze_support()` first thing
+  (`packaging/titanium_main.py`); the build's `--self-test` runs one backtest through the
+  worker. A windowed exe's worker writes errors to `titanium-worker.log` beside the app's log.

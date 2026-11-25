@@ -77,6 +77,31 @@ class Workspace:
         self.focused_strategy: str | None = None  # the strategy whose tab is in front
         self.strategy_focused = Event()  # (id or None,)
 
+    # ---- the backtest worker process ------------------------------------------------
+    def backtest_worker(self, start: bool = True):
+        """The process backtests run in (``app/backtest_worker.py``), started on first use and
+        kept for the session; ``None`` if it can't be started here (then they run on a thread)."""
+        w = getattr(self, "_worker", None)
+        if w is None:
+            from .backtest_worker import BacktestWorker
+
+            w = self._worker = BacktestWorker({
+                "data_root": str(self.datasets.root),
+                "plugins_folder": str(self.plugins.user_folder) if self.plugins.user_folder else None,
+                "off": sorted(self.plugins.switched_off())})
+        if start and not w.alive:
+            try:
+                w.start()
+            except Exception as e:  # noqa: BLE001 - some machines don't let an app start a copy of itself
+                w.problem = f"couldn't start the backtest worker ({type(e).__name__}: {e})"
+                return None
+        return w
+
+    def stop_backtest_worker(self) -> None:
+        w = getattr(self, "_worker", None)
+        if w is not None:
+            w.stop()
+
     # ---- settings the engine and the library read ------------------------------------
     def set_run_defaults(self, defaults: RunDefaults) -> None:
         if defaults != self.run_defaults:

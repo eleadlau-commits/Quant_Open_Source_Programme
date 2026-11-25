@@ -43,6 +43,31 @@ def load_skins(ctx: AppContext) -> None:
     skins.load_folder(paths.skins_folder())
 
 
+def _worker_self_test(ws, record) -> list[str]:
+    """One backtest through the backtest worker process: in a frozen build this checks that the
+    exe can start a copy of itself as the worker (multiprocessing.freeze_support)."""
+    import time
+
+    worker = ws.backtest_worker()
+    if worker is None or not worker.ready(60):
+        return [f"the backtest worker did not start: {worker.problem if worker else 'no worker'}"]
+    try:
+        ws.runs.commit(record)
+        job = ws.backtests.prepare(record, "cost_stress")
+        worker.submit(job.id, ws.backtests.payload(job, ws.plugins.switched_off()))
+        end = time.monotonic() + 120
+        while time.monotonic() < end:
+            for event in worker.poll():
+                if event[0] == "result":
+                    return [] if event[2].status == "done" else [f"worker backtest: {event[2].verdict.explanation}"]
+                if event[0] == "failed":
+                    return [f"worker backtest failed: {event[2]}"]
+            time.sleep(0.05)
+        return ["the worker backtest did not finish in 2 minutes"]
+    finally:
+        worker.stop()
+
+
 def self_test(win: MainWindow) -> list[str]:
     """Problems found (empty when all is well). Visits every view, then runs the starter
     momentum strategy through the engine on a small synthetic dataset in a temporary folder,
@@ -80,6 +105,7 @@ def self_test(win: MainWindow) -> list[str]:
             record = tws.runs.run(g, {}, info.id)
             if not record.states:
                 problems.append("the test run recorded no steps")
+            problems += _worker_self_test(tws, record)
     except Exception as e:  # noqa: BLE001
         import traceback
 
@@ -164,4 +190,7 @@ def main(argv=None, on_shown=None) -> int:
         app.processEvents()
         return _report_self_test(self_test(win))
     add_samples_on_first_launch(ctx)
+    # backtests run in their own process; start it now so the first one doesn't wait for it
+    QTimer.singleShot(500, lambda: ctx.workspace.backtest_worker())
+    app.aboutToQuit.connect(ctx.workspace.stop_backtest_worker)
     return app.exec()
