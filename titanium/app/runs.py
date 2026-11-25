@@ -73,6 +73,7 @@ class RunService(Collection[RunRecord]):
         # its run defaults, then the dataset's market defaults); the strategy's settings and
         # then the run's go on top
         self.defaults: Callable[[str], dict[str, Any]] | None = None
+        self.deleted: set[str] = set()  # strategies deleted this session: their late runs are dropped
 
     def _resolve(self, strategy: str | Any) -> Any:
         if isinstance(strategy, str):
@@ -106,7 +107,10 @@ class RunService(Collection[RunRecord]):
             self._jobs.pop(job.id, None)
 
     def commit(self, record: RunRecord) -> RunRecord:
-        """Keep a finished run for the session (on the UI thread)."""
+        """Keep a finished run for the session (on the UI thread). A run of a strategy deleted
+        while it ran is dropped."""
+        if record.strategy_id in self.deleted:
+            return record
         self.put(record.id, record)
         return record
 
@@ -125,6 +129,11 @@ class RunService(Collection[RunRecord]):
     def active(self) -> list[str]:
         with self._lock:
             return list(self._jobs)
+
+    def active_for(self, strategy_id: str) -> list[str]:
+        """The runs of one strategy still going."""
+        with self._lock:
+            return [i for i, job in self._jobs.items() if getattr(job.strategy, "id", None) == strategy_id]
 
     # ---- the default strategy (the yardstick each run is measured against)
     @staticmethod
