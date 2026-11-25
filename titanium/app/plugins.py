@@ -286,6 +286,13 @@ class PluginManager:
         if reload:
             self.load()
 
+    def set_switched_off(self, plugin_ids, reload: bool = True) -> None:
+        """Take the on/off of every plugin from elsewhere (the backtest worker follows the app's
+        Settings this way) without writing it down."""
+        self._off = set(plugin_ids)
+        if reload:
+            self.load()
+
     # ---- loading ------------------------------------------------------------------
     def unload(self) -> None:
         """Take every plugin's entries out of the registry (the app's own stay)."""

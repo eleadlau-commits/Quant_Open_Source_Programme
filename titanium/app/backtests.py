@@ -78,12 +78,13 @@ class _Cache:
 class BacktestJob:
     """One test on one run. ``execute`` is safe on a worker thread and announces nothing."""
 
-    def __init__(self, service: "BacktestService", record: RunRecord, test_id: str, params: dict[str, Any]):
+    def __init__(self, service: "BacktestService", record: RunRecord, test_id: str, params: dict[str, Any],
+                 cancel: Any = None):
         self.id = f"bt-{uuid.uuid4().hex[:8]}"
         self.service, self.record, self.test_id, self.params = service, record, test_id, params
         self.progress = Event()  # (job_id, fraction), on the thread running execute
         self.fraction = 0.0
-        self._cancel = threading.Event()
+        self._cancel = cancel if cancel is not None else threading.Event()  # anything with set / is_set
         self.reruns = 0
 
     def cancel(self) -> None:
@@ -171,7 +172,8 @@ class BacktestService(Collection[BacktestResult]):
     def _record(self, run: str | RunRecord) -> RunRecord:
         return self.runs.get(run) if isinstance(run, str) else run
 
-    def prepare(self, run: str | RunRecord, test_id: str, params: dict[str, Any] | None = None) -> BacktestJob:
+    def prepare(self, run: str | RunRecord, test_id: str, params: dict[str, Any] | None = None,
+                cancel: Any = None) -> BacktestJob:
         rec = self._record(run)
         if rec.status != "done":
             raise ValueError(f"run {rec.id} {rec.status}; only finished runs can be tested")
@@ -179,7 +181,7 @@ class BacktestService(Collection[BacktestResult]):
         if params is None:
             strat = self.strategies.get(rec.strategy_id) if rec.strategy_id in self.strategies else None
             params = self.used(strat).get(test_id, {}) if strat is not None else {}
-        job = BacktestJob(self, rec, test_id, dict(params))
+        job = BacktestJob(self, rec, test_id, dict(params), cancel)
         with self._lock:
             self._jobs[job.id] = job
         self.started.emit(job.id, rec.id, test_id)
@@ -204,6 +206,45 @@ class BacktestService(Collection[BacktestResult]):
 
     def run(self, run: str | RunRecord, test_id: str, params: dict[str, Any] | None = None) -> BacktestResult:
         return self.commit(self.prepare(run, test_id, params).execute())
+
+    # ---- in the backtest worker process (app/backtest_worker.py) ----------------------
+    def payload(self, job: BacktestJob, switched_off=()) -> dict[str, Any]:
+        """What the worker needs to run ``job``: plain data only. The worker reads prices from
+        the data folder itself; the run, the strategy's earlier runs (some tests compare with
+        them) and the default strategy's run, if there is one yet, go with it."""
+        rec = job.record
+        runs = [rec] + [r for r in self.runs.records(rec.strategy_id) if r.id != rec.id] if rec.strategy_id else [rec]
+        base = self.runs.baseline_for(rec)
+        if base is not None:
+            runs.append(base)
+        ids = [rec.dataset_id] + [d for d in (rec.settings.get("datasets") or []) if d != rec.dataset_id]
+        infos = [self.runs.datasets.get(i) for i in ids if i in self.runs.datasets]
+        return {"run_id": rec.id, "test_id": job.test_id, "params": dict(job.params), "runs": runs,
+                "datasets": infos, "off": sorted(switched_off)}
+
+    def failed_result(self, job: BacktestJob, reason: str) -> BacktestResult:
+        """A result saying ``job`` couldn't run (the worker stopped, or didn't stop when asked)."""
+        rec, info = job.record, info_of(self.entry(job.test_id))
+        stopped = job.cancelled
+        verdict = Verdict(info.name, None, "Stopped before it finished" if stopped else "The test couldn't run",
+                          "You stopped this test." if stopped else f"The backtest worker: {reason}.")
+        return BacktestResult(f"{rec.id}:{job.test_id}", rec.id, rec.strategy_id, job.test_id, info.name, verdict,
+                              dict(job.params), "cancelled" if stopped else "failed", 0.0, datetime.now(UTC), 0)
+
+    def take_new_baseline(self, run_id: str) -> RunRecord | None:
+        """The default strategy's run a test made for ``run_id`` (once): the worker hands it back."""
+        cache = self._caches.get(run_id)
+        if cache is None or not cache.new_baseline:
+            return None
+        cache.new_baseline = False
+        return cache.baseline
+
+    def finish_remote(self, job: BacktestJob, baseline: RunRecord | None = None) -> None:
+        """``job`` ran in the worker: forget it here and keep the default strategy's run it made
+        (on the UI thread, before ``commit``)."""
+        self._finished(job)
+        if baseline is not None and baseline.id not in self.runs and self.runs.baseline_for(job.record) is None:
+            self.runs.commit(baseline)
 
     def cancel(self, job_id: str) -> bool:
         with self._lock:

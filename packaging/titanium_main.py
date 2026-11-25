@@ -5,10 +5,16 @@ crash is written to Documents/Titanium/titanium.log and shown in a plain Windows
 message box (through ctypes, so it works even if Qt itself failed to load).
 """
 import faulthandler
+import multiprocessing
 import os
 import sys
 import traceback
 from pathlib import Path
+
+if __name__ == "__main__":
+    # the backtest worker is this same exe started again: this turns that copy into the worker
+    # (and never returns there), before the log below is opened and would be emptied
+    multiprocessing.freeze_support()
 
 try:
     from titanium.app.paths import app_folder  # tiny module, no heavy imports
