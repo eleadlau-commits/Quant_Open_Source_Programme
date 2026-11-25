@@ -255,6 +255,8 @@ class RunView(QWidget):
         self.backtest_card.body.addLayout(self.verdicts)
         self._verdict_cards: list = []
         self.bt_queue = None
+        # while its tests run, only this block freezes (the rest of the view stays usable)
+        self.bt_busy = BusyOverlay(self.backtest_card, live=True)
         if workspace is not None:
             self.bt_queue = BacktestQueue(workspace, self)
             self.bt_queue.started.connect(self._bt_started)
@@ -389,6 +391,9 @@ class RunView(QWidget):
         """Stop following the workspace (the tab is closing)."""
         self._timer.stop()
         self.cancel()
+        if self.bt_queue is not None and self.bt_queue.running:
+            self.bt_queue.stop()
+        self.bt_busy.stop()
         if self.workspace is not None:
             self.workspace.datasets.added.disconnect(self._datasets_changed)
             self.workspace.datasets.removed.disconnect(self._datasets_changed)
@@ -645,13 +650,16 @@ class RunView(QWidget):
         name = dict((b, n) for b, n, _t in BACKTESTS).get(test_id, test_id)
         self.bt_status.setText(f"Running {name}" + (f" ({pos} of {total})" if total > 1 else ""))
         self._show_verdicts()
+        self.bt_busy.start(f"{self.bt_status.text()}\n0%", self.bt_queue.stop)
 
     def _bt_progress(self, _test_id: str, fraction: float) -> None:
         text = self.bt_status.text().split(" · ")[0]
         if text.startswith("Running"):
             self.bt_status.setText(f"{text} · {int(fraction * 100)}%")
+            self.bt_busy.set_text(f"{text}\n{int(fraction * 100)}%")
 
     def _bt_idle(self) -> None:
+        self.bt_busy.stop()
         self.bt_status.setText("A pass means it survived that test, never that it will make money.")
         self._show_verdicts()
 
