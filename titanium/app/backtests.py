@@ -191,6 +191,9 @@ class BacktestService(Collection[BacktestResult]):
 
     def commit(self, result: BacktestResult) -> BacktestResult:
         """Keep a result (on the UI thread). A default-strategy run made for it joins ``Workspace.runs``."""
+        if result.strategy_id in self.runs.deleted:  # its strategy was deleted while it ran
+            self._caches.pop(result.run_id, None)
+            return result
         cache = self._caches.get(result.run_id)
         if cache is not None and cache.new_baseline and cache.baseline is not None:
             cache.new_baseline = False
@@ -213,6 +216,12 @@ class BacktestService(Collection[BacktestResult]):
     def active(self) -> list[str]:
         with self._lock:
             return list(self._jobs)
+
+    def active_for(self, run_ids) -> list[str]:
+        """The tests still going on any of ``run_ids``."""
+        wanted = set(run_ids)
+        with self._lock:
+            return [i for i, job in self._jobs.items() if job.record.id in wanted]
 
     # ---- results ----------------------------------------------------------------------
     def results(self, run_id: str) -> dict[str, BacktestResult]:

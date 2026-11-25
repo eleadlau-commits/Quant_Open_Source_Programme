@@ -14,8 +14,11 @@ from __future__ import annotations
 import time
 from datetime import timezone
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QGridLayout, QScrollArea, QSlider, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtWidgets import (
+    QApplication, QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QScrollArea, QSlider, QSplitter, QVBoxLayout,
+    QWidget,
+)
 
 from ...core import measurements as M
 from ...core.baseline import DEFAULT_NAME
@@ -30,7 +33,7 @@ from ..backtest_queue import BacktestQueue
 from ..design import tokens as T
 from ..design.chart import MAIN, RIGHT, SUB, ChartMarker, ChartSeries, TimeChart
 from ..design.components import (
-    flow,
+    flow, scrolling,
     BusyOverlay, Card, Segmented, StatTile, VerdictCard, button, hbox, label,
 )
 
@@ -38,12 +41,77 @@ S = T.SPACE
 PROFIT_DISPLAYS = ("growth", "%", "currency")
 MAX_LOCAL = 8  # local series drawn at once (the largest ones)
 RERUN_DELAY_MS = 120  # after the last knob change, once no slider is held
+# the chart and the block below it (backtests, trade log) share the view through a splitter.
+# The chart keeps the height it was last dragged to (one for every tab) and the block below
+# takes the rest; the view scrolls only when the window is shorter than that and the block's
+# least height.
+CHART_KEY = "run_view/chart_height"
+CHART_MIN = 100  # the plot itself, at its smallest; the card adds its pickers and note
+CHART_EASY = 220  # the plot before any drag, at least (more when the window has room)
+CHART_SHARE = 0.6  # of the space for the chart and the block below, before any drag
 # Phase 2F wires these up
 # the quick tests in the backtest block: ids in Library.BACKTESTS (the honest-tests plugin)
 BACKTESTS = (("out_of_sample", "Out-of-sample", "Choose the knobs on the early part, score the later part it never saw"),
              ("cost_stress", "Cost stress", "Run again with every cost doubled"),
              ("random_baseline", "Random baseline", "Same timing, weights and holding periods, names picked at random"),
              ("walk_forward", "Walk-forward", "Re-choose the knobs before each stretch and score only what follows"))
+
+
+class _Fitted(QWidget):
+    """The scrolling content of the view. Its height follows its width (the stat tiles and
+    pickers wrap), so the scroll area sizes it by that instead of by the worst case at its
+    narrowest, which made the view much taller than the window and stretched the chart."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.least: dict = {}  # widget -> callable giving its least height, where the layout's is wrong
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt name)
+        return QSize(super().minimumSizeHint().width(), 0)
+
+    def _item_least(self, it, width: int) -> int:
+        w = it.widget()
+        if w is not None and w in self.least:
+            return self.least[w]()
+        return it.heightForWidth(width) if it.hasHeightForWidth() else it.minimumSize().height()
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 (Qt name)
+        """The least height at ``width``, so the view scrolls only when it truly cannot fit;
+        the splitter's panes then share whatever the window gives."""
+        lay = self.layout()
+        items = [lay.itemAt(i) for i in range(lay.count())]
+        items = [it for it in items if not it.isEmpty()]
+        m = lay.contentsMargins()
+        inner = width - m.left() - m.right()
+        need = sum(self._item_least(it, inner) for it in items)
+        return need + lay.spacing() * max(0, len(items) - 1) + m.top() + m.bottom()
+
+
+class _Pane(QWidget):
+    """One side of the chart splitter. Its minimum height is worked out at its current width
+    (``least``), since the cards in it wrap; asking the layout would give the height at its
+    narrowest and stop the splitter well short."""
+
+    def __init__(self, least, parent=None):
+        super().__init__(parent)
+        self.least = least
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt name)
+        return QSize(super().minimumSizeHint().width(), self.least())
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        super().resizeEvent(event)
+        if event.size().width() != event.oldSize().width():
+            self.updateGeometry()  # wrapping changed, so may the minimum
+
+
+def _least(widget: QWidget) -> int:
+    """The least height ``widget`` needs at its current width (0 while it is hidden)."""
+    if widget.isHidden():
+        return 0
+    if widget.hasHeightForWidth() and widget.width() > 0:
+        return max(widget.heightForWidth(widget.width()), widget.minimumHeight())
+    return widget.minimumSizeHint().height()
 
 
 def _pct(v: float | None, signed: bool = True) -> str:
@@ -86,7 +154,8 @@ class RunView(QWidget):
         area.setWidgetResizable(True)
         area.setFrameShape(QScrollArea.NoFrame)
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        inner = QWidget()
+        inner = _Fitted()
+        self._area, self._inner = area, inner
         area.setWidget(inner)
         outer.addWidget(area)
         lay = QVBoxLayout(inner)
@@ -126,10 +195,18 @@ class RunView(QWidget):
             tiles.addWidget(t)
         lay.addLayout(tiles)
 
-        # chart and its pickers
-        body = QGridLayout()
-        body.setHorizontalSpacing(S["lg"])
-        body.setVerticalSpacing(S["lg"])
+        # chart and its pickers, with the knobs beside it; drag the bar under them to resize the chart
+        self.split = QSplitter(Qt.Vertical)
+        self.split.setChildrenCollapsible(False)
+        self.split.setHandleWidth(S["lg"])
+        upper = _Pane(lambda: _least(chart_card))  # the knobs scroll, so the chart card decides
+        top = QHBoxLayout(upper)
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(S["lg"])
+        lower = _Pane(lambda: _least(self.backtest_card) + S["lg"] + _least(self.log_card))
+        bottom = QVBoxLayout(lower)
+        bottom.setContentsMargins(0, 0, 0, 0)
+        bottom.setSpacing(S["lg"])
         chart_card = Card()
         chart_card.body.setSpacing(S["sm"])
         self.main_pick = QComboBox()
@@ -147,11 +224,11 @@ class RunView(QWidget):
                                        hbox(label("Add", "caption"), self.local_pick, self.overlay), spacing=S["sm"]))
         self.chart = TimeChart()
         self.chart.empty_text = "Run the strategy (Ctrl+Enter) to see it here"
-        self.chart.setMinimumHeight(300)
+        self.chart.setMinimumHeight(CHART_MIN)
         chart_card.body.addWidget(self.chart, 1)
         self.chart_note = label("", "caption")
         chart_card.body.addWidget(self.chart_note)
-        body.addWidget(chart_card, 0, 0)
+        top.addWidget(chart_card, 1)
 
         # backtests: quick tests on the last run; every test is on the Backtests page
         self.backtest_card = Card()
@@ -184,25 +261,34 @@ class RunView(QWidget):
             self.bt_queue.progress.connect(self._bt_progress)
             self.bt_queue.result.connect(lambda _r: self._show_verdicts())
             self.bt_queue.idle.connect(self._bt_idle)
-        body.addWidget(self.backtest_card, 1, 0)
+        bottom.addWidget(self.backtest_card)
 
         # this strategy's knobs and trade log; each can pop out as a dock that follows the tab in front
         self.knobs_card = Card("Knobs", "Turn one and the strategy runs again.")
         self.knobs = KnobsPanel(workspace, graph.id)
-        self.knobs_card.body.addWidget(self.knobs)
-        self.knobs_card.body.addStretch()
+        knobs_area = scrolling(self.knobs)  # a short chart scrolls the knobs instead of holding it tall
+        knobs_area.setMinimumWidth(self.knobs.minimumSizeHint().width() + S["md"])  # room for the scroll bar
+        self.knobs_card.body.addWidget(knobs_area, 1)
         self.knobs_card.setMinimumWidth(260)
         self.knobs_card.setMaximumWidth(340)
         self.knobs_card.add_action(self._pop_button("knobs"))
-        body.addWidget(self.knobs_card, 0, 1, 2, 1)
+        top.addWidget(self.knobs_card)
         self.log_card = Card("Trade log")
         self.trade_log = TradeLogPanel(workspace, graph.id)
         self.log_card.body.addWidget(self.trade_log, 1)
         self.log_card.add_action(self._pop_button("trade_log"))
-        body.addWidget(self.log_card, 2, 0, 1, 2)
-        body.setColumnStretch(0, 1)
-        body.setRowStretch(0, 1)
-        lay.addLayout(body, 1)
+        self.trade_log.table.setMinimumHeight(1)  # a taller chart can fold the trade log to its title
+        bottom.addWidget(self.log_card, 1)
+        self.split.addWidget(upper)
+        self.split.addWidget(lower)
+        self.split.setStretchFactor(0, 0)  # the chart keeps its height; a taller window goes below
+        self.split.setStretchFactor(1, 1)
+        inner.least = {self.split: self._split_least}
+        self.split.handle(1).setToolTip("Drag to resize the chart")
+        self.split.splitterMoved.connect(self._split_moved)
+        self._chart_h: int | None = self._saved_chart_height()  # the chart pane's height; None: not set
+        self.split.installEventFilter(self)
+        lay.addWidget(self.split, 1)
 
         self._timer = QTimer(self, singleShot=True, interval=RERUN_DELAY_MS)
         self._timer.timeout.connect(self._rerun)
@@ -237,6 +323,63 @@ class RunView(QWidget):
         card = {"knobs": self.knobs_card, "trade_log": self.log_card}.get(view_id)
         if card is not None:
             card.setVisible(not is_open)
+        if view_id == "trade_log":
+            self._refit()
+            QTimer.singleShot(0, self._place_split)
+
+    # ---- chart height -----------------------------------------------------------------
+    def _saved_chart_height(self) -> int | None:
+        try:
+            return int(self.app_ctx.settings.value(CHART_KEY)) if self.app_ctx is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _chart_target(self, room: int | None = None) -> int:
+        """The height of the chart pane: as last dragged, else a comfortable share of ``room``
+        (the space the chart and the block below have), never under its least."""
+        least = self.split.widget(0).minimumSizeHint().height()
+        if self._chart_h is not None:
+            return max(least, self._chart_h)
+        easy = least + CHART_EASY - CHART_MIN
+        return max(easy, int((room or 0) * CHART_SHARE))
+
+    def _split_least(self) -> int:
+        """How tall the splitter must be: the chart at its height, the handle, and the least
+        the block below needs. The scroll area gives it more when the window has it."""
+        room = self._area.viewport().height() - max(0, self.split.y())
+        lower = self.split.widget(1).minimumSizeHint().height()
+        return self._chart_target(room) + self.split.handleWidth() + lower
+
+    def _place_split(self) -> None:
+        """Put the chart at its height and give the block below the rest; with the trade log
+        popped out the block needs little, so the chart takes the spare room."""
+        total = sum(self.split.sizes())
+        if total <= 0:
+            return
+        lower_least = self.split.widget(1).minimumSizeHint().height()
+        chart = self._chart_target(total + self.split.handleWidth())
+        if self.log_card.isHidden():
+            chart = max(chart, total - lower_least)
+        chart = min(chart, total - lower_least)
+        if self.split.sizes()[0] != chart:
+            self.split.setSizes([chart, total - chart])
+
+    def _split_moved(self, _pos: int, _index: int) -> None:
+        """Dragged: remember the chart's height and let the view fit it again."""
+        self._chart_h = self.split.sizes()[0]
+        if self.app_ctx is not None:
+            self.app_ctx.settings.setValue(CHART_KEY, self._chart_h)
+        self._refit()
+
+    def _refit(self) -> None:
+        """The least height changed: let the scroll area size the content again."""
+        self._inner.updateGeometry()
+        QApplication.postEvent(self._area, QEvent(QEvent.LayoutRequest))
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt name)
+        if obj is self.split and event.type() == QEvent.Resize:
+            QTimer.singleShot(0, self._place_split)  # after the splitter has shared out its new height
+        return super().eventFilter(obj, event)
 
     def _show(self, view_id: str) -> None:
         if self.open_page is not None:

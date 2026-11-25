@@ -61,7 +61,8 @@ def test_new_strategy_opens_a_tab_with_three_views(win, ctx):
     assert tab.views.count() == 3
     tab.switch.set_index(2)
     assert tab.views.currentIndex() == 2
-    view.close_tab(0)
+    assert not view.close_tab(0)  # the default strategy never closes
+    view.close_tab(view.tabs.currentIndex())
     assert g.id not in ctx.workspace.strategies
 
 
@@ -396,3 +397,111 @@ def test_wrapped_text_is_never_squeezed(qapp):
     qapp.processEvents()
     assert lbl.minimumHeight() < 30 and area.verticalScrollBar().maximum() == 0  # and lets go for less text
     area.close()
+
+
+# ---- strategies: one add button, the pinned default, closing and deleting ---------------
+def test_one_add_button_in_the_header_with_the_add_options(win):
+    view = win.views["strategies"]
+    new = next(w for w in view.actions_bar() if w.text() == "New strategy")
+    texts = [a.text() for a in new.menu().actions()]
+    assert texts == ["New empty strategy", "From the strategy library…", "Import a Python file…",
+                     "Open a strategy file…"]
+    assert view.tabs.cornerWidget(Qt.TopRightCorner) is None  # no second + by the tabs
+    before = view.tabs.count()
+    new.menu().actions()[0].trigger()
+    assert view.tabs.count() == before + 1
+
+
+def test_default_strategy_is_pinned_first_read_only_and_never_closes(win, ctx, qapp):
+    from PySide6.QtWidgets import QTabBar
+
+    from titanium.core.default_strategy import DEFAULT_STRATEGY_ID
+
+    view = win.views["strategies"]
+    tab = view.tabs.widget(0)
+    assert tab is view.default_tab and tab.locked and view.tabs.tabText(0) == "Default"
+    assert DEFAULT_STRATEGY_ID in ctx.workspace.strategies
+    assert view.tabs.tabBar().tabButton(0, QTabBar.RightSide) is None
+    assert tab.badge.text() == "Read-only" and tab.duplicate_btn.isVisibleTo(tab)
+    assert tab.code.editor.isReadOnly() and not tab.patch.add_btn.isVisibleTo(tab.patch)
+    # its logic can't change, its knobs can
+    before = len(tab.patch.graph.modules)
+    tab.patch.add_module("starter/Momentum")
+    assert len(ctx.workspace.strategies.get(DEFAULT_STRATEGY_ID).modules) == before
+    assert tab.patch.error.text() == "Read-only"
+    tab.patch.turn_knob("hold.exposure", 0.5)
+    assert ctx.workspace.strategies.get(DEFAULT_STRATEGY_ID).knob_values == {"hold.exposure": 0.5}
+    # no close, no delete
+    assert not view.close_tab(0)
+    assert not view.ask_delete(DEFAULT_STRATEGY_ID)
+    assert [a.text() for a in view._tab_menu(0).actions()] == ["Duplicate to edit"]
+    # moved tabs never push it off the left
+    view.new_strategy()
+    view.tabs.tabBar().moveTab(1, 0)
+    qapp.processEvents()
+    assert view.tabs.widget(0) is view.default_tab
+    # duplicating gives an editable copy with its own id
+    copy = view.duplicate(DEFAULT_STRATEGY_ID)
+    assert copy.id != DEFAULT_STRATEGY_ID and copy.name == "Hold everything"
+    assert not view.tabs.currentWidget().locked and not view.tabs.currentWidget().code.editor.isReadOnly()
+
+
+def test_new_strategies_show_names_reuse_free_numbers_and_rename(win, ctx):
+    view = win.views["strategies"]
+    a, b = view.new_strategy(), view.new_strategy()
+    assert (a.name, b.name) == ("Strategy 1", "Strategy 2")
+    assert view.tabs.tabText(view.tabs.indexOf(view.tab_of(b.id))) == "Strategy 2"  # no id shown
+    view.close_tab(view.tabs.indexOf(view.tab_of(a.id)))
+    c = view.new_strategy()
+    assert c.name == "Strategy 1" and c.id not in (a.id, b.id)
+    assert view.rename(c.id, "Gap fade")
+    assert ctx.workspace.strategies.get(c.id).name == "Gap fade"
+    assert view.tabs.tabText(view.tabs.indexOf(view.tab_of(c.id))) == "Gap fade"
+    texts = [x.text() for x in view._tab_menu(view.tabs.indexOf(view.tab_of(c.id))).actions() if x.text()]
+    assert texts == ["Save", "Rename…", "Duplicate", "Close", "Delete…"]
+
+
+def test_closing_asks_about_unsaved_changes_and_keeps_runs(win, ctx, tmp_path, monkeypatch):
+    from titanium.desktop.pages.strategies import StrategiesView
+
+    view = win.views["strategies"]
+    g = view.new_strategy()
+    tab = view.tab_of(g.id)
+    asked = []
+    monkeypatch.setattr(StrategiesView, "ask_save", lambda self, t: asked.append(t) or "cancel")
+    assert view.close_tab(view.tabs.indexOf(tab))
+    assert not asked  # nothing changed: closes without asking
+    g = view.new_strategy()
+    tab = view.tab_of(g.id)
+    tab.code.add_module("starter/Momentum")
+    assert not view.close_tab(view.tabs.indexOf(tab)) and asked  # cancelled
+    path = view.save_current(tmp_path, tab=tab)
+    assert path.name == f"{g.name}.json"
+    asked.clear()
+    assert view.close_tab(view.tabs.indexOf(tab)) and not asked
+    # opening the file again brings the same strategy back (same id, so its runs are still its own)
+    again = view.open_file(path)
+    assert again.id == g.id
+
+
+def test_deleting_removes_the_tab_runs_and_optionally_the_file(win, ctx, tmp_path, monkeypatch):
+    from titanium.core.module_library import momentum_rotation
+    from titanium.desktop.pages.strategies import StrategiesView
+
+    ws = ctx.workspace
+    info = ws.datasets.add("synthetic_stocks", {"n_symbols": 3, "n_days": 25, "seed": 4})
+    view = win.views["strategies"]
+    g = momentum_rotation(id=ws.new_strategy_id())
+    g.settings["datasets"] = [info.id]
+    view.open_graph(g)
+    rec = ws.runs.run(g.id)
+    path = view.save_current(tmp_path)
+    seen = []
+    monkeypatch.setattr(StrategiesView, "confirm_delete",
+                        lambda self, tab, fp: seen.append(fp) or (False, False))
+    assert not view.ask_delete(g.id) and view.tab_of(g.id) is not None  # cancelled: nothing goes
+    assert seen[0].runs == 1
+    monkeypatch.setattr(StrategiesView, "confirm_delete", lambda self, tab, fp: (True, True))
+    assert view.ask_delete(g.id)
+    assert view.tab_of(g.id) is None and g.id not in ws.strategies and rec.id not in ws.runs
+    assert not path.exists()

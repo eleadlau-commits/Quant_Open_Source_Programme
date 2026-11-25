@@ -292,6 +292,12 @@ QDockWidget {{ titlebar-close-icon: none; color: {c['text_muted']}; font-size: {
 QDockWidget::title {{ background: {c['window']}; padding: {s['sm']}px {s['md']}px; border-bottom: 1px solid {c['border']}; }}
 QMainWindow::separator {{ background: {c['border']}; width: 1px; height: 1px; }}
 
+/* ---- splitters: a hairline in the gap, brighter under the mouse ---- */
+QSplitter::handle {{ background: transparent; image: none; }}
+QSplitter::handle:vertical {{ margin: {s['lg'] // 2}px 0; border-top: 1px solid {c['border']}; }}
+QSplitter::handle:horizontal {{ margin: 0 {s['lg'] // 2}px; border-left: 1px solid {c['border']}; }}
+QSplitter::handle:hover, QSplitter::handle:pressed {{ border-color: {c['text_faint']}; }}
+
 /* ---- scroll bars ---- */
 QScrollArea {{ background: transparent; border: none; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}

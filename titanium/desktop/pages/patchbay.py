@@ -34,6 +34,18 @@ def _name(entry: str) -> str:
     return entry.rpartition("/")[2]
 
 
+LOCKED = "the default strategy can't be changed. Duplicate it to get a copy you can edit"
+
+
+def _logic(graph: StrategyGraph) -> dict:
+    """The graph without what a locked strategy may still change (knob settings, module positions)."""
+    d = graph_to_dict(graph)
+    d.pop("knob_values", None)
+    for m in d["modules"]:
+        m.pop("layout", None)
+    return d
+
+
 class PatchBay(QWidget):
     """The canvas for one strategy. ``workspace`` may be None (then changes stay local)."""
 
@@ -47,6 +59,7 @@ class PatchBay(QWidget):
         self._mine: dict = graph_to_dict(graph)
         self._undo: list[dict] = []
         self._redo: list[dict] = []
+        self.locked = False  # read-only logic (the default strategy): knobs turn, modules move, nothing else
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -123,6 +136,8 @@ class PatchBay(QWidget):
 
     # ---- messages
     def _summary(self) -> str:
+        if self.locked:
+            return "Read-only. Knobs still turn; duplicate it to change the modules."
         return "Drag from an output to an input to link. Right-click for more."
 
     def _say(self, text: str) -> None:
@@ -172,10 +187,23 @@ class PatchBay(QWidget):
     def sizes(self) -> dict[str, tuple[float, float]]:
         return {i: node_size(n.spec) for i, n in self.scene.nodes.items()}
 
+    def set_locked(self, locked: bool) -> None:
+        """Lock the strategy's logic: knobs still turn and modules still move, but nothing is added,
+        removed, linked or renamed."""
+        self.locked = locked
+        for b in (self.add_btn, self.tidy_btn, self.undo_btn, self.redo_btn):
+            b.setVisible(not locked)
+        self.view.accept_mime = "" if locked else MODULE_MIME
+        self._say(self._summary())
+
     # ---- the one way the graph changes
     def commit(self, new: StrategyGraph, message: str = "") -> None:
         """Make ``new`` the strategy (undoably) and tell everyone through the workspace."""
         if graph_to_dict(new) == graph_to_dict(self.graph):
+            return
+        if self.locked and _logic(new) != _logic(self.graph):
+            self._refuse(LOCKED, "Read-only")
+            self.redraw()
             return
         self._undo.append(graph_to_dict(self.graph))
         del self._undo[:-UNDO_LIMIT]
@@ -391,6 +419,11 @@ class PatchBay(QWidget):
 
     def build_menu(self, item, pt: QPointF) -> QMenu:
         menu = QMenu(self)
+        if self.locked:
+            if isinstance(item, NodeItem):
+                menu.addAction("Show code", lambda mid=item.spec.id: self.show_code.emit(mid))
+            menu.addAction("Fit", self.view.fit)
+            return menu
         if isinstance(item, NodeItem):
             ids = self.scene.selected_nodes() or [item.spec.id]
             mid = item.spec.id
