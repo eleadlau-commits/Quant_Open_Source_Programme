@@ -19,7 +19,7 @@ from ..backtest_queue import BacktestQueue
 from ..design import tokens as T
 from ..design.components import (
     flow,
-    Card, DataTable, Details, Dialog, EmptyState, ParamForm, StatTile, Switch, VerdictCard, button, hbox, label,
+    BusyOverlay, Card, DataTable, Details, Dialog, EmptyState, ParamForm, StatTile, Switch, VerdictCard, button, hbox, label,
 )
 from ._base import PageView, WhenShown
 
@@ -125,6 +125,8 @@ class BacktestsView(PageView):
         tl.setColumnStretch(0, 3)
         tl.setColumnStretch(1, 1)
         split.addWidget(top)
+        # while tests run, the list and its settings freeze; the verdicts below stay live
+        self.busy = BusyOverlay(top, live=True)
 
         # the verdicts
         res = QWidget()
@@ -479,13 +481,20 @@ class BacktestsView(PageView):
         name = next((t.name for t in self.ws.backtests.tests() if t.id == test_id), test_id)
         self.status.setText(f"Running {name} ({pos} of {total})")
         self.refresh()
+        self.busy.start(f"Running {name} ({pos} of {total})\n0%", self.queue.stop)
+        self.strategy.setEnabled(False)
+        self.run.setEnabled(False)
 
     def _progress(self, test_id: str, fraction: float) -> None:
         text = self.status.text().split(" · ")[0]
         if text.startswith("Running"):
             self.status.setText(f"{text} · {int(fraction * 100)}%")
+            self.busy.set_text(f"{text}\n{int(fraction * 100)}%")
 
     def _idle(self) -> None:
+        self.busy.stop()
+        self.strategy.setEnabled(True)
+        self.run.setEnabled(True)
         self.status.setText("Done. A pass means the result survived that test.")
         self.refresh()
 

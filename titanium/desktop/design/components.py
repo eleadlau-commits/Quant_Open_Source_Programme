@@ -987,14 +987,20 @@ class BusyOverlay(QWidget):
     call ``cancel``. ``set_text`` updates it (progress); ``stop()`` gives the window back,
     with the keyboard focus where it was. Get the window's one overlay with
     ``BusyOverlay.of(widget)``.
+
+    ``BusyOverlay(section, live=True)`` freezes one section instead (the backtest block):
+    only that section stops taking input, the rest of the window stays usable, and the
+    section is drawn live under a lighter scrim so results show as they arrive. It takes
+    the keyboard only if the focus was inside the section.
     """
 
     GRACE_MS = 150
     FADE_MS = 120
     PANEL = (360, 72)
 
-    def __init__(self, parent: QWidget):
+    def __init__(self, parent: QWidget, live: bool = False):
         super().__init__(parent)
+        self.live = live
         self.setAttribute(Qt.WA_NoSystemBackground)
         self.setCursor(Qt.BusyCursor)
         self.setFocusPolicy(Qt.StrongFocus)
@@ -1038,13 +1044,17 @@ class BusyOverlay(QWidget):
         self._level = 0.0
         # the still is taken now, before the work starts: later a worker thread would be
         # competing with every widget's painting for Python's lock
-        self._still = self.parentWidget().grab()
+        parent = self.parentWidget()
+        self._still = None if self.live else parent.grab()
         self.cancel_btn.hide()
-        self._focus = QApplication.focusWidget()
-        self.setGeometry(self.parentWidget().rect())
+        focus = QApplication.focusWidget()
+        mine = not self.live or (focus is not None and parent.isAncestorOf(focus))
+        self._focus = focus if mine else None
+        self.setGeometry(parent.rect())
         self.show()
         self.raise_()
-        self.setFocus(Qt.OtherFocusReason)
+        if mine:
+            self.setFocus(Qt.OtherFocusReason)
         self._grace.start()
 
     def set_text(self, text: str) -> None:
@@ -1079,7 +1089,7 @@ class BusyOverlay(QWidget):
     def _appear(self) -> None:
         if not self.active:
             return
-        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, not self.live)
         self._level = 0.001
         self.cancel_btn.setVisible(self._cancel is not None)
         self._place_button()
@@ -1112,7 +1122,8 @@ class BusyOverlay(QWidget):
                  QEvent.Wheel, QEvent.ContextMenu, QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
             e.accept()
             return True
-        if t == QEvent.FocusOut and self.active and QApplication.focusWidget() not in (None, self.cancel_btn):
+        if t == QEvent.FocusOut and self.active and not self.live and \
+                QApplication.focusWidget() not in (None, self.cancel_btn):
             QTimer.singleShot(0, lambda: self.active and self.setFocus(Qt.OtherFocusReason))
         return super().event(e)
 
@@ -1120,7 +1131,7 @@ class BusyOverlay(QWidget):
         if obj is self.parentWidget() and event.type() == QEvent.Resize:
             self.setGeometry(self.parentWidget().rect())
             self._place_button()
-            if self.shown:  # the still no longer fits: take a new one
+            if self.shown and not self.live:  # the still no longer fits: take a new one
                 self.hide()
                 self._still = self.parentWidget().grab()
                 self.show()
@@ -1130,6 +1141,7 @@ class BusyOverlay(QWidget):
     # ---- drawing ----------------------------------------------------------------------
     def _panel_rect(self) -> QRectF:
         w, h = self.PANEL
+        w = min(w, max(160, self.width() - 2 * S["md"]))
         return QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h)
 
     def _spinner_rect(self) -> QRectF:
@@ -1150,7 +1162,7 @@ class BusyOverlay(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         if self._still is not None:
             p.drawPixmap(0, 0, self._still)
-        p.fillRect(self.rect(), theme.qcolor(pal.window, 0.6 * self._level))
+        p.fillRect(self.rect(), theme.qcolor(pal.window, (0.45 if self.live else 0.6) * self._level))
         p.setOpacity(self._level)
         r = self._panel_rect()
         p.setPen(QPen(theme.qcolor(pal.border_strong), 1))

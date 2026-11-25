@@ -341,3 +341,46 @@ def test_run_view_backtest_buttons_run_tests(page_ctx, ws):
     assert "cost_stress" in ws.backtests.results(view.record.id)
     assert [c.name for c in view._verdict_cards] == ["Cost stress"]
     ws.runs.remove(view.record.id)
+
+
+def test_a_running_backtest_freezes_only_its_section(page_ctx, ws, qapp):
+    from PySide6.QtTest import QTest
+
+    from titanium.desktop.pages.backtests import BacktestsView
+    from titanium.desktop.pages.run_view import RunView
+
+    # the Run view: only the backtest card is covered, live, and its Cancel stops the queue
+    view = RunView(ws.strategies.get("S1"), ws)
+    view.background = False
+    view.run()
+    view.resize(1200, 900)
+    view.show()
+    qapp.processEvents()
+    view.background = True  # the tests run on a worker, as in the app
+    view.backtest_buttons["cost_stress"].click()
+    ov = view.bt_busy
+    assert ov.active and ov.live and ov.parentWidget() is view.backtest_card
+    assert ov.geometry() == view.backtest_card.rect()
+    assert view.main_pick.isEnabled() and view.chart.isVisible()  # the rest stays usable
+    for _ in range(600):
+        qapp.processEvents()
+        if not view.bt_queue.running:
+            break
+        QTest.qWait(10)
+    assert not ov.active and "cost_stress" in ws.backtests.results(view.record.id)
+    view.close()
+    view.detach()
+
+    # the Backtests page: the list and its settings freeze, the pickers too, until it is done
+    page = BacktestsView(page_ctx)
+    page.show()
+    page.queue.background = True
+    page.run_tests(["cost_stress"])
+    assert page.busy.active and page.busy.live and not page.strategy.isEnabled()
+    for _ in range(600):
+        qapp.processEvents()
+        if not page.queue.running:
+            break
+        QTest.qWait(10)
+    assert not page.busy.active and page.strategy.isEnabled()
+    page.close()

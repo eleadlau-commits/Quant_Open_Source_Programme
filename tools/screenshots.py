@@ -96,6 +96,19 @@ def shoot_run(app, tmp: Path, sample: Path, out: Path, mode: str) -> None:
     settle(app)
     win.grab().save(str(out / f"strategy-run-busy-{mode}.png"))
     ov.stop()
+    bt = tab.run_view.bt_busy  # a backtest running: only its block freezes
+    from PySide6.QtWidgets import QScrollArea
+    area = tab.run_view.findChild(QScrollArea)
+    if area is not None:
+        area.ensureWidgetVisible(tab.run_view.backtest_card)
+        settle(app)
+    bt.start("Running Cost stress\n35%", bt.stop)
+    bt._appear()
+    bt._fade_step(1.0)
+    bt._spin_step(200.0)
+    settle(app)
+    win.grab().save(str(out / f"strategy-run-backtest-busy-{mode}.png"))
+    bt.stop()
     win.show_page("data")
     settle(app)
     win.close()
