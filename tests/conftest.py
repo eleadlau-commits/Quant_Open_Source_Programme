@@ -23,3 +23,15 @@ def ctx(tmp_path):
     from titanium.desktop.context import AppContext
 
     return AppContext(QSettings(str(tmp_path / "settings.ini"), QSettings.IniFormat))
+
+
+@pytest.fixture(autouse=True)
+def no_strategy_dialogs(request, monkeypatch):
+    """Closing or deleting a strategy asks first; tests answer for the user instead of a dialog
+    blocking (closing discards changes, deleting is confirmed and keeps the saved file)."""
+    if "qapp" not in request.fixturenames:
+        return
+    from titanium.desktop.pages.strategies import StrategiesView
+
+    monkeypatch.setattr(StrategiesView, "ask_save", lambda self, tab: "discard")
+    monkeypatch.setattr(StrategiesView, "confirm_delete", lambda self, tab, footprint: (True, False))

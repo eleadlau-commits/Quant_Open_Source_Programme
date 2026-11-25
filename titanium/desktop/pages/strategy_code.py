@@ -31,6 +31,7 @@ class CodeView(QWidget):
         self.graph = graph
         self.workspace = workspace
         self._mine: dict | None = None  # the graph as this view last wrote it
+        self.locked = False  # read-only (the default strategy): shown, never read back
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -64,7 +65,16 @@ class CodeView(QWidget):
             self.workspace.strategies.changed.disconnect(self._on_changed)
 
     # ---- messages
+    def set_locked(self, locked: bool) -> None:
+        self.locked = locked
+        self.editor.setReadOnly(locked)
+        self.knob_btn.setVisible(not locked)
+        self.add_btn.setVisible(not locked)
+        self._say(self._summary())
+
     def _summary(self) -> str:
+        if self.locked:
+            return "Read-only. Duplicate it to edit the code."
         return "Edits apply as you type. Ctrl+K makes the number under the cursor a knob."
 
     def _say(self, text: str) -> None:
@@ -80,6 +90,8 @@ class CodeView(QWidget):
     def read_back(self) -> bool:
         """Parse the editor into the graph. Returns False (and shows why) if it can't be read."""
         self._timer.stop()
+        if self.locked:
+            return True
         try:
             new = update_from_code(self.graph, self.editor.toPlainText())
         except StrategyCodeError as e:
@@ -131,6 +143,8 @@ class CodeView(QWidget):
 
     # ---- actions
     def make_knob(self) -> str | None:
+        if self.locked:
+            return None
         line, col = self.editor.cursor_line_col()
         try:
             src, name = make_knob(self.editor.toPlainText(), line, col)
@@ -160,7 +174,7 @@ class CodeView(QWidget):
                 m.addAction(e.name.rpartition("/")[2], lambda name=e.name: self.add_module(name)).setToolTip(e.doc)
 
     def add_module(self, entry_name: str) -> None:
-        if not self.read_back() or self.workspace is None:
+        if self.locked or not self.read_back() or self.workspace is None:
             return
         new = update_from_code(self.graph, generate(self.graph))  # a copy to change
         mod = add_to_graph(new, self.workspace.registry, entry_name)
