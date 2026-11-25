@@ -470,3 +470,54 @@ def test_clock_serves_graph_decision_times():
     times = clock.decision_times(g.settings)
     assert [t.astimezone(NY) for t in times] == [ny(DAYS[0], "10:00")]
     assert len(clock.decision_times()) == 5
+
+
+# ---- re-running fast: what one run works out is kept for the next -----------------------------
+def test_combined_data_reuses_derived_daily_bars_and_sim_arrays(monkeypatch):
+    from titanium.core import bars as B
+    from titanium.core.sim import feed as F
+
+    data = stock_data(n_days=5, keys=("xnas:AAA", "xnas:BBB"))
+    calls = []
+    real = B.daily_from_minutes
+    monkeypatch.setattr(B, "daily_from_minutes", lambda m, mk: calls.append(1) or real(m, mk))
+    provider = MemoryData({"d": data})
+    first = F.combined(provider, ["d"])
+    d1 = first.daily("xnas:AAA")
+    second = F.combined(provider, ["d"])  # the next run
+    assert second.daily("xnas:AAA") is d1 and len(calls) == 1
+    b1 = SimBroker(first).bars("xnas:AAA")
+    assert SimBroker(second).bars("xnas:AAA") is b1  # same market and hours: kept
+    assert SimBroker(second, extended_hours=True).bars("xnas:AAA") is not b1  # different hours: its own
+
+
+def test_guard_daily_bars_by_binary_search_match_the_row_filter():
+    from titanium.core.guard import Guard
+
+    data = stock_data(n_days=6)
+    daily = data.daily("xnas:AAA")
+    for end in list(daily["end"]) + [daily["end"].iloc[0] - timedelta(minutes=1)]:
+        for as_of in (end, end + timedelta(minutes=1)):
+            g = Guard(data, as_of)
+            want = daily[daily["end"] <= as_of]
+            assert g.daily("xnas:AAA").equals(want)
+            start = daily["end"].iloc[1]
+            if start <= as_of:
+                assert g.daily("xnas:AAA", start=start).equals(want[want["end"] > start])
+
+
+def test_engine_reruns_give_the_same_record_as_a_fresh_run():
+    from titanium.app.workspace import Workspace
+    from titanium.core.module_library import momentum_rotation
+
+    ws = Workspace()
+    info = ws.datasets.add("synthetic_stocks", {"n_symbols": 5, "n_days": 40, "seed": 7})
+    g = momentum_rotation()
+    g.knob_values["m2.days"] = 10
+    g.settings["datasets"] = [info.id]
+    ws.strategies.put(g.id, g)
+    a = ws.runs.run(g.id)
+    b = ws.runs.run(g.id)  # reuses the opened dataset's daily bars and arrays
+    assert [s.equity for s in a.states] == [s.equity for s in b.states]
+    assert [(t.instrument, t.quantity, t.entry_price) for t in a.trades] == \
+           [(t.instrument, t.quantity, t.entry_price) for t in b.trades]

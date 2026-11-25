@@ -21,7 +21,7 @@ from ..design.components import (
     flow,
     Card, DataTable, Details, Dialog, EmptyState, ParamForm, StatTile, Switch, VerdictCard, button, hbox, label,
 )
-from ._base import PageView
+from ._base import PageView, WhenShown
 
 S = T.SPACE
 GROUPS = (("fail", "Failed"), ("pass", "Passed"), ("na", "Could not judge"))
@@ -178,10 +178,10 @@ class BacktestsView(PageView):
             self.queue.progress.connect(self._progress)
             self.queue.result.connect(lambda _r: self.refresh())
             self.queue.idle.connect(self._idle)
-            for ev in (self.ws.runs.added, self.ws.runs.removed):
-                ev.connect(lambda *_: self._fill_strategies())
-            for ev in (self.ws.strategies.added, self.ws.strategies.changed, self.ws.strategies.removed):
-                ev.connect(lambda *_: self._fill_strategies())
+            later = WhenShown(self, self._fill_strategies)  # no redraw while hidden: catches up when shown
+            for ev in (self.ws.runs.added, self.ws.runs.removed, self.ws.strategies.added,
+                       self.ws.strategies.changed, self.ws.strategies.removed):
+                ev.connect(later)
             self.ws.backtests.added.connect(lambda *_: self.refresh())
             self.ws.backtests.changed.connect(lambda *_: self.refresh())
         self._fill_strategies()

@@ -55,3 +55,17 @@ limits, plus 0.85 commission per contract per side.
 
 `states` (one per step plus the end), `fills`, `trades` (flat to flat, net of costs, open ones
 flagged `open`), `probes`, `log`, `status` (`done`, `cancelled`, `failed`) and `error`.
+
+## Re-running fast
+
+Turning a knob re-runs the whole simulation (a decision can depend on every one before
+it), so the parts that don't depend on the strategy are worked out once per opened
+dataset and kept there: daily bars derived from minutes, the guard's index of when each
+daily bar became visible, and the simulator's per-instrument price arrays
+(`MarketData.memo`, keyed by market and trading hours). `MarketData.combine` reads every
+frame through the dataset it comes from, so each run's combined view shares them.
+Removing or rebuilding a dataset drops its opened copy and everything kept with it.
+
+In the desktop app the run and, when it needs one, the default strategy's run happen
+off the UI thread inside one busy period (`BusyOverlay`): the window takes no input until
+the result is drawn. `tools/bench_rerun.py` measures it.

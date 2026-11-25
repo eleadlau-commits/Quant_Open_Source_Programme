@@ -3,7 +3,11 @@
 The view is a thin reader of run records. A run goes through ``Workspace.runs``
 (prepare on the UI thread, execute on a worker, commit back on the UI thread); the
 default strategy is run once on the same terms and kept as the yardstick. Turning a
-knob in the Knobs dock (or through ``turn``) re-runs after a short pause and redraws.
+knob in the Knobs dock (or through ``turn``) re-runs once it is let go and redraws.
+
+While a run (and the default strategy's, when it needs one) is computing, the window is
+clearly busy: ``BusyOverlay`` blocks every click and key press and, after a short grace,
+shows a spinner and progress. When the window takes input again, the work is done.
 """
 from __future__ import annotations
 
@@ -12,7 +16,8 @@ from datetime import timezone
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QScrollArea, QSplitter, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QScrollArea, QSlider, QSplitter, QVBoxLayout,
+    QWidget,
 )
 
 from ...core import measurements as M
@@ -29,13 +34,13 @@ from ..design import tokens as T
 from ..design.chart import MAIN, RIGHT, SUB, ChartMarker, ChartSeries, TimeChart
 from ..design.components import (
     flow, scrolling,
-    Card, Segmented, StatTile, VerdictCard, button, hbox, label,
+    BusyOverlay, Card, Segmented, StatTile, VerdictCard, button, hbox, label,
 )
 
 S = T.SPACE
 PROFIT_DISPLAYS = ("growth", "%", "currency")
 MAX_LOCAL = 8  # local series drawn at once (the largest ones)
-RERUN_DELAY_MS = 350
+RERUN_DELAY_MS = 120  # after the last knob change, once no slider is held
 # the chart and the block below it (backtests, trade log) share the view through a splitter.
 # The chart keeps the height it was last dragged to (one for every tab) and the block below
 # takes the rest; the view scrolls only when the window is shorter than that and the block's
@@ -138,6 +143,7 @@ class RunView(QWidget):
         self.record: RunRecord | None = None
         self.baseline: RunRecord | None = None
         self.job = None
+        self._bjob = None  # the default strategy's run, while it is part of the busy period
         self._pending = False  # a rerun asked for while one is running
         self._started = 0.0
 
@@ -285,7 +291,7 @@ class RunView(QWidget):
         lay.addWidget(self.split, 1)
 
         self._timer = QTimer(self, singleShot=True, interval=RERUN_DELAY_MS)
-        self._timer.timeout.connect(self.run)
+        self._timer.timeout.connect(self._rerun)
         self._poll = QTimer(self, interval=100)
         self._poll.timeout.connect(self._show_progress)
 
@@ -493,6 +499,27 @@ class RunView(QWidget):
         else:
             self.run()
 
+    def _rerun(self) -> None:
+        """A knob settled: run again, but not while a slider is still held (the busy state
+        would take the mouse from it mid-drag)."""
+        if any(sl.isSliderDown() for sl in self.window().findChildren(QSlider)):
+            self._timer.start()
+            return
+        self.run()
+
+    def _overlay(self) -> BusyOverlay | None:
+        return BusyOverlay.of(self) if self.workspace is not None else None
+
+    def _busy(self, text: str) -> None:
+        ov = self._overlay()
+        if ov is not None:
+            ov.start(f"Running {self.graph.name}\n{text}", self.cancel)
+
+    def _idle(self) -> None:
+        ov = self._overlay()
+        if ov is not None:
+            ov.stop()
+
     def run(self) -> bool:
         self._timer.stop()
         if self.workspace is None:
@@ -511,6 +538,7 @@ class RunView(QWidget):
             self._say(msg, error=True)
             return False
         self._started = time.monotonic()
+        self._busy("0%")
         self.running_changed.emit(True, "0%")
         self._say("Running…")
         self._poll.start()
@@ -520,23 +548,40 @@ class RunView(QWidget):
 
     def cancel(self) -> None:
         self._pending = False
-        if self.job is not None and self.workspace is not None:
+        if self.workspace is None:
+            return
+        if self.job is not None:
             self.workspace.runs.cancel(self.job.id)
+        if self._bjob is not None:
+            self.workspace.runs.cancel(self._bjob.id)
 
     def _show_progress(self) -> None:
         if self.job is not None:
-            self.running_changed.emit(True, f"{int(self.job.fraction * 100)}%")
+            pct = f"{int(self.job.fraction * 100)}%"
+            self.running_changed.emit(True, pct)
+            ov = self._overlay()
+            if ov is not None and ov.active:
+                ov.set_text(f"Running {self.graph.name}\n{pct}")
 
-    def _end(self) -> None:
+    def _end(self, idle: bool = True) -> None:
         self.job = None
         self._poll.stop()
         self.running_changed.emit(False, "")
+        if idle:
+            self._idle()
 
     def _done(self, job, record: RunRecord) -> None:
         if self.workspace is None:
             return
         self.workspace.runs.commit(record)
-        self._end()
+        self._end(idle=False)  # stays busy until the result is drawn
+        try:
+            self._show_run(record)
+        finally:
+            if self.job is None and self._bjob is None:
+                self._idle()
+
+    def _show_run(self, record: RunRecord) -> None:
         if self._pending:
             self._pending = False
             self.run()
@@ -557,17 +602,30 @@ class RunView(QWidget):
         self._say(f"Last run: {where}{len(record.states)} steps, {n} trade{'s' * (n != 1)}, {took:.1f} s")
         self.baseline = self.workspace.runs.baseline_for(record)
         if self.baseline is None:
+            # the yardstick is part of the same busy period: the window comes back when it is drawn
+            self._busy("Default strategy")
             bjob = self.workspace.runs.prepare_baseline(record)
-            tasks.run(bjob.execute, self._baseline_done, lambda e: None, self.background)
+            self._bjob = bjob
+            tasks.run(bjob.execute, self._baseline_done, self._baseline_failed, self.background)
+            return
         self.redraw()
 
     def _baseline_done(self, record: RunRecord) -> None:
+        self._bjob = None
         if self.workspace is None:
             return
         self.workspace.runs.commit(record)
         if self.record is not None and record.status == "done" and self.workspace.runs.baseline_for(self.record) is record:
             self.baseline = record
-            self.redraw()
+        self.redraw()
+        if self.job is None:
+            self._idle()
+
+    def _baseline_failed(self, _e: Exception) -> None:
+        self._bjob = None
+        self.redraw()
+        if self.job is None:
+            self._idle()
 
     def _failed(self, job, e: Exception) -> None:
         self._end()

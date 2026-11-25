@@ -19,7 +19,7 @@ from ..design import tokens as T
 from ..design.components import (
     Card, DataTable, Details, Dialog, EmptyState, ParamForm, SearchField, Segmented, badge, button, hbox, label, scrolling,
 )
-from ._base import PageView
+from ._base import PageView, WhenShown
 from ..views import PageStack
 
 S = T.SPACE
@@ -115,8 +115,9 @@ class DataView(PageView):
             for ev in (self.service.added, self.service.changed, self.service.removed):
                 ev.connect(lambda *_: self.refresh())
             ws = self.ctx.workspace
+            later = WhenShown(self, self.refresh)  # "used by" follows strategies; no redraw while hidden
             for ev in (ws.strategies.added, ws.strategies.changed, ws.strategies.removed, ws.market_defaults_changed):
-                ev.connect(lambda *_: self.refresh())
+                ev.connect(later)
         self.refresh()
 
     # ---- header -------------------------------------------------------------------

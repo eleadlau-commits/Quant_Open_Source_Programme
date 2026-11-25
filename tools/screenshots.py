@@ -85,6 +85,17 @@ def shoot_run(app, tmp: Path, sample: Path, out: Path, mode: str) -> None:
     tab.run_view.settings_btn.setChecked(True)  # the Run settings panel: where each value comes from
     settle(app)
     win.grab().save(str(out / f"strategy-run-settings-{mode}.png"))
+    tab.run_view.settings_btn.setChecked(False)
+    settle(app)
+    from titanium.desktop.design.components import BusyOverlay  # the busy state while a run computes
+    ov = BusyOverlay.of(win)
+    ov.start("Running Momentum rotation\n42%", ov.stop)
+    ov._appear()
+    ov._fade_step(1.0)
+    ov._spin_step(70.0)
+    settle(app)
+    win.grab().save(str(out / f"strategy-run-busy-{mode}.png"))
+    ov.stop()
     win.show_page("data")
     settle(app)
     win.close()

@@ -158,8 +158,9 @@ def test_run_needs_a_dataset_then_runs_and_fills_everything(run_tab, qapp):
     assert "default" in rv.tiles["total_profit"].note.text()
     assert [s.name for s in rv.chart.series] == ["Momentum rotation", "Default strategy"]
     assert rv.chart.markers
-    # the trade log dock shows the run's trades
+    # the trade log dock shows the run's trades (a hidden dock catches up when it is shown)
     log = w.views["trade_log"]
+    w.docks["trade_log"].show()
     assert log.table.rowCount() == len(rec.trades)
     # profit as money, then a local series below and over
     rv.display.set_index(2)
@@ -321,3 +322,83 @@ def test_chart_fits_the_window_and_drags_to_a_remembered_height(run_tab, qapp):
     for _ in range(10):
         qapp.processEvents()
     assert other.run_view._chart_target() == rv.split.sizes()[0]
+
+
+# ---- busy or smooth ------------------------------------------------------------------
+def test_busy_overlay_blocks_clicks_and_keys_and_shows_after_a_grace(qapp):
+    from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget
+
+    from titanium.desktop.design.components import BusyOverlay
+
+    win = QWidget()
+    win.resize(600, 400)
+    lay = QVBoxLayout(win)
+    b = QPushButton("Under")
+    lay.addWidget(b)
+    clicks, cancels = [], []
+    b.clicked.connect(lambda: clicks.append(1))
+    win.show()
+    qapp.processEvents()
+    b.setFocus()
+    ov = BusyOverlay.of(b)
+    assert BusyOverlay.of(win) is ov  # one per window
+    ov.start("Running S\n10%", lambda: cancels.append(1))
+    assert ov.active and not ov.shown  # blocking at once, drawn only after the grace
+    assert ov.geometry() == win.rect()
+    assert win.childAt(b.geometry().center()) is ov
+    QTest.mouseClick(win.windowHandle(), Qt.LeftButton, pos=b.geometry().center())  # lands on the overlay
+    QTest.keyClick(win.windowHandle(), Qt.Key_Space)  # so do keys
+    qapp.processEvents()
+    assert clicks == [] and qapp.focusWidget() is ov
+    QTest.qWait(ov.GRACE_MS + ov.FADE_MS + 60)
+    assert ov.shown and ov.cancel_btn.isVisible()
+    QTest.keyClick(ov, Qt.Key_Escape)
+    assert cancels == [1]
+    ov.set_text("Running S\n50%")
+    assert not ov.grab().isNull()
+    ov.stop()
+    assert not ov.active and ov.isHidden() and qapp.focusWidget() is b  # focus goes back
+    QTest.mouseClick(win.windowHandle(), Qt.LeftButton, pos=b.geometry().center())
+    qapp.processEvents()
+    assert clicks == [1]
+    win.close()
+
+
+def test_a_background_run_keeps_the_window_busy_until_drawn(run_tab, qapp):
+    from titanium.desktop.design.components import BusyOverlay
+
+    w, ws, tab = run_tab
+    rv = tab.run_view
+    use_dataset(ws)
+    rv.background = True
+    ov = BusyOverlay.of(rv)
+    seen = []
+    rv.running_changed.connect(lambda r, _t: seen.append((r, ov.active)))
+    tab.run()
+    assert ov.active  # nothing can be clicked while it computes
+    for _ in range(400):
+        qapp.processEvents()
+        if not ov.active:
+            break
+        QTest.qWait(10)
+    assert not ov.active and rv.record is not None and rv.baseline is not None  # result and yardstick drawn
+    assert seen[0] == (True, True)
+    rv.background = False
+
+
+def test_knob_rerun_waits_while_a_slider_is_held(run_tab, qapp):
+    from PySide6.QtWidgets import QSlider
+
+    w, ws, tab = run_tab
+    rv = tab.run_view
+    use_dataset(ws)
+    tab.run()
+    first = rv.record
+    slider = rv.knobs.controls["m3.top"].findChild(QSlider)
+    slider.setSliderDown(True)
+    rv.knobs.turn("m3.top", 2)
+    rv._timer.timeout.emit()
+    assert rv.record is first and rv._timer.isActive()  # still held: waits
+    slider.setSliderDown(False)
+    rv._timer.timeout.emit()
+    assert rv.record is not first

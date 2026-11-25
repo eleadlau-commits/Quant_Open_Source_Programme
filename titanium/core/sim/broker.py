@@ -121,7 +121,11 @@ class SimBroker:
 
     def bars(self, key: str) -> _Bars:
         if key not in self._bars:
-            self._bars[key] = self._load(key)
+            # the arrays only depend on the data, the market and the hours traded: kept with the
+            # dataset (MarketData.memo) so the next run over it starts with them
+            memo = getattr(self.data, "memo", None)
+            tag = ("sim-bars", self.market.id, self.extended_hours)
+            self._bars[key] = memo(key, tag, lambda: self._load(key)) if memo else self._load(key)
         return self._bars[key]
 
     def _load(self, key: str) -> _Bars:

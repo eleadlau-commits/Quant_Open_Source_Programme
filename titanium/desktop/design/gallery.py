@@ -7,7 +7,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, fields
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QGridLayout, QLabel, QScrollArea, QSlider, QVBoxLayout, QWidget,
@@ -17,7 +17,7 @@ from . import icons, theme
 from . import tokens as T
 from .chart import SUB, ChartMarker, ChartSeries, TimeChart
 from .components import (
-    CableEnds, Canvas, Card, CodeEditor, DataTable, Details, EmptyState, ItemRow, KnobControl, KnobSpec, Logo,
+    BusyOverlay, CableEnds, Canvas, Card, CodeEditor, DataTable, Details, EmptyState, ItemRow, KnobControl, KnobSpec, Logo,
     NodeCanvasScene, NodeCanvasView, NodeSpec, ParamForm, RunButton, SearchField, Segmented, StatTile, Switch,
     VerdictCard, badge, button, divider, flow, hbox, label,
 )
@@ -179,6 +179,20 @@ def build() -> QWidget:
     ok.add_action(badge("Passed", "success"))
     row.addWidget(ok)
     col.addLayout(row)
+
+    # busy state
+    bz = section("Busy state", "BusyOverlay: while a run computes, the window is covered and takes no clicks or keys. "
+                               "It shows itself after a short grace, so quick work never flashes. Esc cancels.")
+    demo = button("Show it for two seconds", "secondary", "play")
+
+    def show_busy():
+        ov = BusyOverlay.of(demo)
+        ov.start("Running Momentum rotation\n42%", ov.stop)
+        QTimer.singleShot(2000, ov.stop)
+
+    demo.clicked.connect(show_busy)
+    bz.body.addLayout(hbox(demo, None))
+    col.addWidget(bz)
 
     # verdicts
     vd = section("Verdicts", "VerdictCard: a backtest's result. Passed, failed or could not judge, the headline, a few "

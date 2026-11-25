@@ -89,10 +89,10 @@ def daily_from_minutes(minutes: pd.DataFrame, market: Market) -> pd.DataFrame:
         keep.append(d)
     if not keep:
         return pd.DataFrame(columns=cols, index=pd.DatetimeIndex([], name="session"))
-    o_arr = local_day.map(lambda d: opens.get(d, pd.NaT))
-    c_arr = local_day.map(lambda d: closes.get(d, pd.NaT))
-    o_arr = pd.DatetimeIndex(o_arr)
-    c_arr = pd.DatetimeIndex(c_arr)
+    # each minute's session open and close, looked up by its local day in one go
+    codes = days.get_indexer(local_day)
+    o_arr = pd.DatetimeIndex([opens.get(d, pd.NaT) for d in days], tz=UTC).take(codes)
+    c_arr = pd.DatetimeIndex([closes.get(d, pd.NaT) for d in days], tz=UTC).take(codes)
     one = pd.Timedelta(minutes=1)
     mask = np.asarray((start >= o_arr) & (start + one <= c_arr))
     reg = minutes[mask]
@@ -160,6 +160,9 @@ class MarketData:
         self.instrument_specs: dict[str, Instrument] = dict(instruments or {})
         self.name = name
         self._spans: dict[str, tuple[date, date] | None] = {}
+        self._ends: dict[str, np.ndarray | None] = {}
+        self._memo: dict[tuple, Any] = {}
+        self._origin: dict[str, "MarketData"] = {}  # where each instrument's frames come from (combine)
 
     # ---- what is here -------------------------------------------------------
     @property
@@ -209,22 +212,53 @@ class MarketData:
             self._spans[key] = (d.index[0].date(), d.index[-1].date()) if len(d) else None
         return self._spans[key]
 
+    def daily_ends(self, key: str) -> np.ndarray | None:
+        """The daily bars' ``end`` times as int64 nanoseconds, for finding the visible ones by
+        binary search; ``None`` if they are not in order (then the guard filters row by row)."""
+        if key not in self._ends:
+            d = self.daily(key)
+            ends = pd.DatetimeIndex(d["end"]).tz_convert(UTC).as_unit("ns").asi8 if len(d) else np.empty(0, "int64")
+            self._ends[key] = ends if bool(np.all(ends[1:] >= ends[:-1])) else None
+        return self._ends[key]
+
+    def memo(self, key: str, tag: tuple, make: Callable[[], Any]) -> Any:
+        """Something worked out from one instrument's frames (``make()``), kept by the dataset
+        the instrument comes from, so later runs over the same opened dataset reuse it.
+        ``tag`` must name everything else it depends on. Treat the result as read-only."""
+        home = self._origin.get(key, self)
+        slot = (key, *tag)
+        if slot not in home._memo:
+            home._memo[slot] = make()
+        return home._memo[slot]
+
     # ---- combining ----------------------------------------------------------------
     def combine(self, *others: "MarketData") -> "MarketData":
-        """One view over several datasets (e.g. prices plus news plus features)."""
-        out = MarketData(self.market, self._minute, self._daily, self._series, self.instrument_specs, self.name)
-        for o in others:
-            for k, v in o._minute.items():
-                out._minute.setdefault(k, v)
-            for k, v in o._daily.items():
-                out._daily.setdefault(k, v)
-            for k, v in o._series.items():
+        """One view over several datasets (e.g. prices plus news plus features).
+
+        Frames are read through the dataset they come from, so what one reads from disk or
+        derives (daily bars from minutes) is kept there and reused by every later combination:
+        each run over the same opened dataset starts from what earlier runs already loaded.
+        """
+        out = MarketData(self.market, instruments=self.instrument_specs, name=self.name)
+        for src in (self, *others):
+            for k in src._minute:
+                out._minute.setdefault(k, src._reader(src.minute, k))
+            for k in set(src._daily) | set(src._minute):
+                out._origin.setdefault(k, src._origin.get(k, src))
+            for k in set(src._daily) | set(src._minute):
+                out._daily.setdefault(k, src._reader(src.daily, k))
+            for k in src._series:
                 if k in out._series:
                     raise ValueError(f"two datasets both provide a series named {k!r}")
-                out._series[k] = v
-            for k, v in o.instrument_specs.items():
-                out.instrument_specs.setdefault(k, v)
+                out._series[k] = src._reader(src.series, k)
+            if src is not self:
+                for k, v in src.instrument_specs.items():
+                    out.instrument_specs.setdefault(k, v)
         return out
+
+    @staticmethod
+    def _reader(get: Callable[[str], pd.DataFrame], key: str) -> Callable[[], pd.DataFrame]:
+        return lambda: get(key)
 
     def frames(self) -> Iterable[tuple[str, str, pd.DataFrame]]:
         """(section, name, frame) for every stored frame: section is minute, daily or series."""

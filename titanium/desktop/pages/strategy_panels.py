@@ -12,6 +12,7 @@ from ...core.baseline import DEFAULT_ID
 from ...core.markets import MARKETS
 from ..design import tokens as T
 from ..design.components import DataTable, KnobControl, button, hbox, label
+from ._base import WhenShown
 
 S = T.SPACE
 
@@ -139,6 +140,8 @@ class TradeLogPanel(_StrategyPanel):
         self.table.setMinimumHeight(160)
         self.lay.addWidget(self.table, 1)
         self.record = None
+        # a hidden log (the dock while it isn't popped out) fills itself when it is next shown
+        self._refresh_any = WhenShown(self, self.refresh)
         ws = workspace
         if ws is not None:
             if strategy_id is None:
@@ -154,9 +157,6 @@ class TradeLogPanel(_StrategyPanel):
                 ws.strategy_focused.disconnect(self._refresh_any)
             ws.runs.added.disconnect(self._refresh_any)
             ws.runs.changed.disconnect(self._refresh_any)
-
-    def _refresh_any(self, *_):
-        self.refresh()
 
     def last_run(self):
         ws, sid = self.workspace, self.target
