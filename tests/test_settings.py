@@ -34,8 +34,10 @@ def page(qapp, ctx):
 
 
 def test_the_page_keeps_its_cards(page):
+    from PySide6.QtWidgets import QLabel
+
     from titanium.desktop.design.components import Card
-    titles = [c.findChildren(type(page.skin_about))[0].text() for c in page.findChildren(Card)]
+    titles = [c.findChildren(QLabel)[0].text() for c in page.findChildren(Card)]
     for t in ("Appearance", "Skin", "Defaults for every run", "Markets", "Module library", "Plugins", "Layout"):
         assert t in titles
 

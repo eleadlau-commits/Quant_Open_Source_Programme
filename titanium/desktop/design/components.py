@@ -11,7 +11,7 @@ from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QVariantAni
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
-    QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QPushButton, QSizePolicy, QSpinBox,
+    QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
     QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -21,10 +21,51 @@ from . import tokens as T
 S = T.SPACE
 
 
+class WrapLabel(QLabel):
+    """A word-wrapped label that keeps the height its text needs at its current width.
+
+    Qt gives a wrapped QLabel a minimum height of about one line, so a layout that runs short
+    of space squeezes it and cuts the text off mid-line instead of growing or scrolling. This
+    label raises its minimum height to the wrapped height whenever its width or text changes,
+    so a short container has to scroll (or the window stays tall enough) rather than clip.
+    """
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self.setWordWrap(True)
+        self._fit_width = -1
+
+    def _fit(self) -> None:
+        w = self.width()
+        if w <= 0:
+            return
+        self._fit_width = w
+        held = self.minimumHeight()
+        if held:  # QLabel counts its minimum height into heightForWidth, so measure without it
+            self.setMinimumHeight(0)
+        need = self.heightForWidth(w)
+        self.setMinimumHeight(max(need, 0))
+
+    def setText(self, text: str) -> None:  # noqa: N802 (Qt name)
+        super().setText(text)
+        self._fit()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        super().resizeEvent(event)
+        if event.size().width() != self._fit_width:
+            self._fit()
+
+    def changeEvent(self, event) -> None:  # noqa: N802 (Qt name): a new skin may change the font
+        super().changeEvent(event)
+        if event.type() in (event.Type.FontChange, event.Type.StyleChange):
+            self._fit()
+
+
 def label(text: str, role: str = "", wrap: bool = False) -> QLabel:
     """Text in one of the type roles: display, heading, title, label, muted, caption, overline, stat,
-    mono (paths, ids), error, key (the left column of a details list)."""
-    lbl = QLabel(text)
+    mono (paths, ids), error, key (the left column of a details list). Wrapped text never clips:
+    see ``WrapLabel``."""
+    lbl = WrapLabel(text) if wrap else QLabel(text)
     if role:
         lbl.setProperty("role", role)
     lbl.setWordWrap(wrap)
@@ -209,6 +250,22 @@ def flow(*items, spacing: int = S["sm"], fill: bool = False) -> FlowLayout:
             holder.setLayout(it)
             lay.addWidget(holder)
     return lay
+
+
+def scrolling(widget: QWidget) -> QScrollArea:
+    """Wrap ``widget`` so it scrolls up and down when its area is shorter than its content.
+
+    Any panel whose content can outgrow a short window (a details list, a form) goes in one,
+    so nothing is squeezed or cut off."""
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.NoFrame)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    area.setWidget(widget)
+    # let the surface underneath (a card, the page) show through instead of the window colour
+    area.viewport().setAutoFillBackground(False)
+    widget.setAutoFillBackground(False)
+    return area
 
 
 class Card(QFrame):

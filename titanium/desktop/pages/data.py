@@ -17,7 +17,7 @@ from .. import tasks
 from ..market_text import hours_text, market_text, tz_name
 from ..design import tokens as T
 from ..design.components import (
-    Card, DataTable, Details, Dialog, EmptyState, ParamForm, SearchField, Segmented, badge, button, hbox, label,
+    Card, DataTable, Details, Dialog, EmptyState, ParamForm, SearchField, Segmented, badge, button, hbox, label, scrolling,
 )
 from ._base import PageView
 from ..views import PageStack
@@ -327,11 +327,14 @@ class DatasetCard(Card):
         self.info: DatasetInfo | None = None
         self.name = label("", "title", wrap=True)
         self.kind = badge("", "neutral")
-        self.body.addLayout(hbox(self.name, None, self.kind))
+        head = hbox(self.name, self.kind)
+        head.setStretch(0, 1)  # the name takes the width; a wrapped label next to a stretch gets squeezed narrow
+        head.setAlignment(self.kind, Qt.AlignTop)
+        self.body.addLayout(head)
         self.notes = label("", "caption", wrap=True)
         self.body.addWidget(self.notes)
         self.fields = Details()
-        self.body.addWidget(self.fields, 1)
+        self.body.addWidget(scrolling(self.fields), 1)  # a short window scrolls the details, never clips them
         self.error = label("", "error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
