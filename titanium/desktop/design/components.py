@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import weakref
 
-from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractButton, QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
+    QAbstractButton, QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
     QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
     QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
@@ -971,3 +971,211 @@ class VerdictCard(Card):
 # Code and knobs live in their own file; they are part of the kit all the same.
 from .code_editor import CodeEditor, KnobControl  # noqa: E402,F401
 from .node_canvas import CableEnds, KnobSpec, NodeCanvasScene, NodeCanvasView, NodeSpec  # noqa: E402,F401
+
+
+# ---- busy state (added for instant knobs) ---------------------------------------------------
+class BusyOverlay(QWidget):
+    """The window's busy state: covers it while work runs, so the app is either clearly busy
+    or fully usable, never half-responsive.
+
+    ``start(text, cancel)`` covers the window at once: every click, wheel turn, drop and
+    key press (shortcuts and the menu bar included) lands on the overlay and goes no
+    further. It draws itself only after ``GRACE_MS``, so a job that finishes quickly never
+    flashes; then it shows a still of the window, dimmed, with a spinning arc and the text.
+    Painting a still (taken once, as it starts) keeps the busy state cheap: nothing underneath repaints
+    while a worker thread is busy, so the spinner keeps turning. Esc or the Cancel button
+    call ``cancel``. ``set_text`` updates it (progress); ``stop()`` gives the window back,
+    with the keyboard focus where it was. Get the window's one overlay with
+    ``BusyOverlay.of(widget)``.
+    """
+
+    GRACE_MS = 150
+    FADE_MS = 120
+    PANEL = (360, 72)
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_NoSystemBackground)
+        self.setCursor(Qt.BusyCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAcceptDrops(True)
+        self._cancel = None
+        self._text = ""
+        self._angle = 0.0
+        self._level = 0.0  # 0 (invisible, still blocking) to 1 (fully drawn)
+        self._still: QPixmap | None = None
+        self._focus = None
+        self.active = False
+        self.cancel_btn = button("Cancel", "ghost", tip="Stop it (Esc)")
+        self.cancel_btn.setParent(self)
+        self.cancel_btn.setCursor(Qt.PointingHandCursor)
+        self.cancel_btn.clicked.connect(self._do_cancel)
+        self.cancel_btn.hide()
+        self._spin = QVariantAnimation(self, startValue=0.0, endValue=360.0, duration=900, loopCount=-1)
+        self._spin.valueChanged.connect(self._spin_step)
+        self._fade = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=self.FADE_MS)
+        self._fade.valueChanged.connect(self._fade_step)
+        self._grace = QTimer(self, singleShot=True, interval=self.GRACE_MS)
+        self._grace.timeout.connect(self._appear)
+        parent.installEventFilter(self)
+        self.hide()
+        theme.watch(self, lambda w: w.update())
+
+    @classmethod
+    def of(cls, widget: QWidget) -> "BusyOverlay":
+        win = widget.window()
+        found = win.findChild(cls, options=Qt.FindDirectChildrenOnly)
+        return found if found is not None else cls(win)
+
+    # ---- the busy period --------------------------------------------------------------
+    def start(self, text: str = "Working…", cancel=None) -> None:
+        self._text, self._cancel = text, cancel
+        if self.active:
+            self.cancel_btn.setVisible(self.shown and cancel is not None)
+            self.update(self._panel_rect().toAlignedRect())
+            return
+        self.active = True
+        self._level = 0.0
+        # the still is taken now, before the work starts: later a worker thread would be
+        # competing with every widget's painting for Python's lock
+        self._still = self.parentWidget().grab()
+        self.cancel_btn.hide()
+        self._focus = QApplication.focusWidget()
+        self.setGeometry(self.parentWidget().rect())
+        self.show()
+        self.raise_()
+        self.setFocus(Qt.OtherFocusReason)
+        self._grace.start()
+
+    def set_text(self, text: str) -> None:
+        if text != self._text:
+            self._text = text
+            if self._level > 0:
+                self.update(self._panel_rect().toAlignedRect())
+
+    def stop(self) -> None:
+        if not self.active:
+            return
+        self.active = False
+        self._grace.stop()
+        self._spin.stop()
+        self._fade.stop()
+        self._cancel = None
+        self._still = None
+        self._level = 0.0
+        self.hide()
+        focus, self._focus = self._focus, None
+        try:
+            if focus is not None and focus.isVisible():
+                focus.setFocus(Qt.OtherFocusReason)
+        except RuntimeError:  # the widget has gone meanwhile
+            pass
+
+    @property
+    def shown(self) -> bool:
+        """True once the grace period is over and the busy state is drawn."""
+        return self.active and self._level > 0
+
+    def _appear(self) -> None:
+        if not self.active:
+            return
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self._level = 0.001
+        self.cancel_btn.setVisible(self._cancel is not None)
+        self._place_button()
+        self._spin.start()
+        self._fade.start()
+
+    def _do_cancel(self) -> None:
+        if self._cancel is not None:
+            self._cancel()
+
+    def _spin_step(self, v) -> None:
+        self._angle = float(v)
+        self.update(self._spinner_rect().toAlignedRect().adjusted(-3, -3, 3, 3))
+
+    def _fade_step(self, v) -> None:
+        self._level = max(0.001, float(v))
+        self.update()
+
+    # ---- input: everything lands here and stops ---------------------------------------
+    def event(self, e) -> bool:
+        t = e.type()
+        if t == QEvent.ShortcutOverride:  # keys come to the overlay instead of firing shortcuts
+            e.accept()
+            return True
+        if t == QEvent.KeyPress:
+            if e.key() == Qt.Key_Escape:
+                self._do_cancel()
+            return True
+        if t in (QEvent.KeyRelease, QEvent.MouseButtonPress, QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick,
+                 QEvent.Wheel, QEvent.ContextMenu, QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
+            e.accept()
+            return True
+        if t == QEvent.FocusOut and self.active and QApplication.focusWidget() not in (None, self.cancel_btn):
+            QTimer.singleShot(0, lambda: self.active and self.setFocus(Qt.OtherFocusReason))
+        return super().event(e)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.parentWidget() and event.type() == QEvent.Resize:
+            self.setGeometry(self.parentWidget().rect())
+            self._place_button()
+            if self.shown:  # the still no longer fits: take a new one
+                self.hide()
+                self._still = self.parentWidget().grab()
+                self.show()
+                self.raise_()
+        return False
+
+    # ---- drawing ----------------------------------------------------------------------
+    def _panel_rect(self) -> QRectF:
+        w, h = self.PANEL
+        return QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h)
+
+    def _spinner_rect(self) -> QRectF:
+        r = self._panel_rect()
+        return QRectF(r.left() + S["lg"], r.center().y() - 14, 28, 28)
+
+    def _place_button(self) -> None:
+        r = self._panel_rect()
+        hint = self.cancel_btn.sizeHint()
+        self.cancel_btn.setGeometry(int(r.right() - hint.width() - S["md"]), int(r.center().y() - hint.height() / 2),
+                                    hint.width(), hint.height())
+
+    def paintEvent(self, event) -> None:
+        if self._level <= 0:
+            return
+        pal = theme.current()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        if self._still is not None:
+            p.drawPixmap(0, 0, self._still)
+        p.fillRect(self.rect(), theme.qcolor(pal.window, 0.6 * self._level))
+        p.setOpacity(self._level)
+        r = self._panel_rect()
+        p.setPen(QPen(theme.qcolor(pal.border_strong), 1))
+        p.setBrush(theme.qcolor(pal.surface))
+        rad = theme.radius("lg")
+        p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), rad, rad)
+        # the spinner: a faint ring with a brand-red arc running round it
+        ring = self._spinner_rect().adjusted(2, 2, -2, -2)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(theme.qcolor(pal.border), 3))
+        p.drawEllipse(ring)
+        p.setPen(QPen(theme.qcolor(pal.brand), 3, Qt.SolidLine, Qt.RoundCap))
+        p.drawArc(ring, int(-self._angle * 16), 100 * 16)
+        lines = self._text.split("\n")
+        left = ring.right() + S["md"]
+        width = (self.cancel_btn.x() if self.cancel_btn.isVisible() else r.right()) - left - S["md"]
+        f = self.font()
+        f.setPixelSize(T.TYPE.body)
+        f.setWeight(f.Weight.DemiBold)
+        p.setFont(f)
+        p.setPen(theme.qcolor(pal.text))
+        p.drawText(QRectF(left, ring.top() - 4, width, 18), Qt.AlignVCenter | Qt.AlignLeft,
+                   p.fontMetrics().elidedText(lines[0], Qt.ElideRight, int(width)))
+        if len(lines) > 1:
+            p.setPen(theme.qcolor(pal.text_muted))
+            p.setFont(theme.mono_font(T.TYPE.caption))
+            p.drawText(QRectF(left, ring.top() + 14, width, 16), Qt.AlignVCenter | Qt.AlignLeft, lines[1])
+        p.end()

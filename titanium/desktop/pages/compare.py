@@ -22,7 +22,7 @@ from .. import tasks
 from ..design import tokens as T
 from ..design.chart import ChartSeries, TimeChart
 from ..design.components import Card, DataTable, Dialog, EmptyState, Segmented, button, flow, hbox, label
-from ._base import PageView
+from ._base import PageView, WhenShown
 
 S = T.SPACE
 DAY = 86400.0
@@ -191,9 +191,10 @@ class CompareView(PageView):
 
         self._fill_tabs()
         if self.ws is not None:
+            later = WhenShown(self, self.refresh)  # no redraw while hidden: catches up when shown
             for ev in (self.ws.runs.added, self.ws.runs.removed):
-                ev.connect(lambda *_: self.refresh())
-            self.ws.strategies.changed.connect(lambda *_: self.refresh())
+                ev.connect(later)
+            self.ws.strategies.changed.connect(later)
         self.refresh()
 
     # ---- header ---------------------------------------------------------------------

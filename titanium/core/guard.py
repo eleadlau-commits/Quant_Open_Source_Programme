@@ -95,6 +95,11 @@ class Guard:
             lo = 0 if start_ts is None else int(df.index.searchsorted(start_ts, "left"))
             return df.iloc[lo:hi]
         df = self._data.daily(instrument)
+        ends = self._data.daily_ends(instrument) if hasattr(self._data, "daily_ends") else None
+        if ends is not None:  # in order: find the visible rows by binary search
+            hi = int(ends.searchsorted(end_ts.as_unit("ns").value, "right"))
+            lo = 0 if start_ts is None else int(ends.searchsorted(start_ts.as_unit("ns").value, "right"))
+            return df.iloc[lo:max(lo, hi)]
         visible = df[df["end"] <= end_ts]
         if start_ts is not None:
             visible = visible[visible["end"] > start_ts]

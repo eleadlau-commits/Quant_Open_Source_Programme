@@ -274,6 +274,7 @@ def test_backtests_page_says_when_the_strategy_changed(page_ctx, ws):
     from titanium.desktop.pages.backtests import BacktestsView
 
     v = BacktestsView(page_ctx)
+    v.show()  # a hidden page catches up when it is next shown, not on every change
     assert v.stale.isHidden()
     g = copy.deepcopy(ws.strategies.get("S1"))
     g.knob_values["m1.days"] = 12
@@ -282,6 +283,7 @@ def test_backtests_page_says_when_the_strategy_changed(page_ctx, ws):
     g.knob_values["m1.days"] = 10
     ws.strategies.put("S1", g)
     assert v.stale.isHidden()
+    v.close()
 
 
 def test_compare_page_ticks_runs_and_measures_the_window(page_ctx, ws):
