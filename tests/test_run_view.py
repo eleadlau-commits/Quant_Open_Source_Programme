@@ -278,3 +278,46 @@ def test_run_settings_show_where_each_value_comes_from_and_override_it(run_tab, 
     # the status line says which market and hours the run used
     tab.run()
     assert rv.status.text().startswith("Last run: Nasdaq, regular hours")
+
+
+def _drag_handle(split, dy, qapp):
+    handle = split.handle(1)
+    mid = QPoint(handle.width() // 2, handle.height() // 2)
+    QTest.mousePress(handle, Qt.LeftButton, Qt.NoModifier, mid)
+    QTest.mouseMove(handle, mid + QPoint(0, dy))
+    QTest.mouseRelease(handle, Qt.LeftButton, Qt.NoModifier, mid + QPoint(0, dy))
+    for _ in range(10):
+        qapp.processEvents()
+
+
+def test_chart_fits_the_window_and_drags_to_a_remembered_height(run_tab, qapp):
+    from titanium.desktop.pages.run_view import CHART_KEY
+
+    w, _ws, tab = run_tab
+    w.resize(1440, 900)
+    tab.switch.set_index(2)
+    for _ in range(10):
+        qapp.processEvents()
+    rv = tab.run_view
+    bar = rv._area.verticalScrollBar()
+    # the content is sized by what it needs at this width, not by its narrowest layout
+    assert rv._inner.height() < 1100
+    upper = rv.split.sizes()[0]
+    assert upper >= rv.split.widget(0).minimumSizeHint().height()
+    # drag the chart smaller: it keeps that height, and the view no longer needs to scroll
+    _drag_handle(rv.split, -150, qapp)
+    smaller = rv.split.sizes()[0]
+    assert smaller < upper and int(w.ctx.settings.value(CHART_KEY)) == smaller
+    assert bar.maximum() == 0, (rv._inner.height(), rv._area.viewport().height())
+    # drag it taller again
+    _drag_handle(rv.split, 60, qapp)
+    assert rv.split.sizes()[0] > smaller
+    # a new tab opens with the same chart height
+    from titanium.core.module_library import momentum_rotation
+
+    w.views["strategies"].open_graph(momentum_rotation(id="S9"))
+    other = w.views["strategies"].tabs.currentWidget()
+    other.switch.set_index(2)
+    for _ in range(10):
+        qapp.processEvents()
+    assert other.run_view._chart_target() == rv.split.sizes()[0]
