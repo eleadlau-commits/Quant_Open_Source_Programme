@@ -11,8 +11,8 @@ Each step at decision time ``t``:
 4. the strategy gets a guarded view pinned to ``t`` and that state, and decides;
 5. the decision becomes orders. Target weights are sized from what is known at ``t``:
    the latest visible close and the equity marked with it, in whole lots, sells before
-   buys, buys limited to the cash there is (no leverage beyond ``max_gross``). Market
-   orders still waiting to fill count as already done. They fill
+   buys, buys limited to the cash there is (no leverage beyond ``max_gross``). New targets
+   replace the last ones: their orders still waiting to fill are cancelled first. They fill
    at the next bar's open; if that gaps up, cash may dip slightly below zero, which is
    allowed and logged.
 
@@ -248,6 +248,11 @@ class SimEngine:
                 raise ValueError(f"target weight for {key} is not a number")
             if w and check(key):
                 targets[key] = w
+        # new targets replace the last ones: their orders still waiting to fill are cancelled, so a
+        # repeated target never buys twice and a dropped name's pending buy doesn't go through
+        for o in broker.open_orders():
+            if o.tag == "rebalance" and o.type is OrderType.MARKET:
+                broker.cancel(o.id)
         gross = sum(abs(w) for w in targets.values())
         if gross > max_gross + 1e-12:
             targets = {k: w * max_gross / gross for k, w in targets.items()}
@@ -262,11 +267,6 @@ class SimEngine:
             else:
                 prices[k] = mark
         equity = ledger.equity_at(prices)
-        # market orders still waiting to fill count as done, so a repeated target doesn't buy twice
-        pending: dict[str, float] = {}
-        for o in broker.open_orders():
-            if o.type is OrderType.MARKET and o.parent is None:
-                pending[o.instrument] = pending.get(o.instrument, 0.0) + int(o.side) * o.quantity
         deltas: list[tuple[str, float]] = []
         for k in keys:
             if k in skip:
@@ -277,13 +277,12 @@ class SimEngine:
             raw = targets.get(k, 0.0) * equity / unit if unit > 0 else 0.0
             lot = spec.lot_size or 1.0
             want = math.trunc(raw / lot + 1e-9) * lot
-            delta = want - ledger.quantity(k) - pending.get(k, 0.0)
+            delta = want - ledger.quantity(k)
             if abs(delta) >= lot - 1e-12 and (want == 0 or abs(delta) * unit >= min_trade * equity):
                 deltas.append((k, delta))
         # sells first so their cash pays for the buys; stock buys limited to the cash there is
         deltas.sort(key=lambda kd: kd[1] > 0)
-        cash = ledger.cash - sum(q * prices[k] * broker.spec(k).multiplier for k, q in pending.items()
-                                 if k in prices and broker.spec(k).kind is not InstrumentKind.FUTURE)
+        cash = ledger.cash
         for k, delta in deltas:
             spec = broker.spec(k)
             price = prices[k]

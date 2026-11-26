@@ -98,11 +98,11 @@ def test_market_order_fills_at_next_bar_open():
     assert rec.states[2].positions["xnas:AAA"].quantity == 10
 
 
-def daily_only(n=10):
+def daily_only(n=10, keys=("xnas:AAA",)):
     days = pd.bdate_range("2024-03-04", periods=n)
     px = 100 + np.arange(float(n))
     df = pd.DataFrame({"open": px, "high": px + 1, "low": px - 1, "close": px + 0.5, "volume": 1e6}, index=days)
-    return MarketData("xnas", daily={"xnas:AAA": daily_frame(df, NASDAQ)})
+    return MarketData("xnas", daily={k: daily_frame(df, NASDAQ) for k in keys})
 
 
 class AllIn:
@@ -124,13 +124,32 @@ def test_daily_fill_is_booked_before_the_next_decision():
     assert all(f.side is Side.BUY for f in rec.fills[:1]) and sum(f.side is Side.BUY for f in rec.fills) == 1
 
 
-def test_repeated_target_counts_orders_still_waiting_to_fill():
+def test_new_targets_replace_orders_still_waiting_to_fill():
     """Two decisions a day on daily bars: the 15:50 decision sees the 09:45 order still unfilled."""
     rec = run(AllIn(), daily_only(), costs={"stress": 0}, decide_at=["09:45", "15:50"])
     buy = rec.fills[0]
     assert buy.side is Side.BUY and buy.quantity * buy.price < 1.02 * rec.capital
     assert max(s.positions["xnas:AAA"].quantity for s in rec.states if s.positions) == buy.quantity  # not 2x
     assert sum(f.side is Side.BUY for f in rec.fills) == 1
+
+
+def test_a_dropped_names_pending_buy_is_cancelled():
+    """09:45 targets AAA, 15:50 switches to BBB before the AAA order could fill: only BBB is bought."""
+
+    class Switch:
+        settings: dict = {}
+
+        def decide(self, view, p):
+            if not view.universe():
+                return None
+            return {"xnas:AAA": 1.0} if view.as_of.astimezone(NY).hour < 12 else {"xnas:BBB": 1.0}
+
+    rec = run(Switch(), daily_only(keys=("xnas:AAA", "xnas:BBB")), costs={"stress": 0},
+              decide_at=["09:45", "15:50"])
+    for s in rec.states:
+        gross = sum(abs(pos.quantity) * pos.last_price for pos in s.positions.values())
+        assert gross < 1.05 * s.equity and s.cash > -0.05 * s.equity
+    assert {f.instrument for f in rec.fills} == {"xnas:BBB"}
 
 
 def test_target_weights_sized_at_last_visible_close_in_whole_lots():
