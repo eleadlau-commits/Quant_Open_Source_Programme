@@ -3,7 +3,7 @@
 ## Adding a strategy
 
 There is one way in: the **New strategy** button in the page header. Its menu has
-New empty strategy, From the strategy library (Phase 2), Import a Python file, and Open a
+New empty strategy, From the strategy library (greyed out until the strategy library exists), Import a Python file, and Open a
 strategy file. Right-click a tab for Save (Ctrl+S), Rename, Duplicate, Close and Delete.
 
 ## The default strategy
