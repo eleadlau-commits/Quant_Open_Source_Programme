@@ -11,8 +11,9 @@ Each step at decision time ``t``:
 4. the strategy gets a guarded view pinned to ``t`` and that state, and decides;
 5. the decision becomes orders. Target weights are sized from what is known at ``t``:
    the latest visible close and the equity marked with it, in whole lots, sells before
-   buys, buys limited to the cash there is (no leverage beyond ``max_gross``). Market
-   orders still waiting to fill count as already done. They fill
+   buys, buys limited to the cash there is (no leverage beyond ``max_gross``). New targets
+   replace rebalance orders still waiting for a bar; market orders the strategy sent itself
+   and that are still waiting count as already done. They fill
    at the next bar's open; if that gaps up, cash may dip slightly below zero, which is
    allowed and logged.
 
@@ -251,7 +252,18 @@ class SimEngine:
         gross = sum(abs(w) for w in targets.values())
         if gross > max_gross + 1e-12:
             targets = {k: w * max_gross / gross for k, w in targets.items()}
-        keys = sorted(set(targets) | set(ledger.positions))
+        # a new set of targets replaces the last one: rebalance orders still waiting for a bar
+        # (two decisions before the next open) are cancelled and the trades worked out afresh,
+        # so an old target can't fill on top of the new one
+        for o in broker.open_orders():
+            if o.tag == "rebalance" and o.type is OrderType.MARKET and o.parent is None:
+                broker.cancel(o.id)
+        # market orders the strategy sent itself and that are still waiting count as done
+        pending: dict[str, float] = {}
+        for o in broker.open_orders():
+            if o.type is OrderType.MARKET and o.parent is None:
+                pending[o.instrument] = pending.get(o.instrument, 0.0) + int(o.side) * o.quantity
+        keys = sorted(set(targets) | set(ledger.positions) | set(pending))
         # sized from what is known at t: the latest visible close and the equity marked with it.
         # The order still fills at the next bar's open, which may differ (a gap): see docs/engine.md.
         prices, skip = {}, set()
@@ -262,11 +274,6 @@ class SimEngine:
             else:
                 prices[k] = mark
         equity = ledger.equity_at(prices)
-        # market orders still waiting to fill count as done, so a repeated target doesn't buy twice
-        pending: dict[str, float] = {}
-        for o in broker.open_orders():
-            if o.type is OrderType.MARKET and o.parent is None:
-                pending[o.instrument] = pending.get(o.instrument, 0.0) + int(o.side) * o.quantity
         deltas: list[tuple[str, float]] = []
         for k in keys:
             if k in skip:

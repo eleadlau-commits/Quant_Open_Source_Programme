@@ -556,3 +556,30 @@ def test_engine_reruns_give_the_same_record_as_a_fresh_run():
     assert [s.equity for s in a.states] == [s.equity for s in b.states]
     assert [(t.instrument, t.quantity, t.entry_price) for t in a.trades] == \
            [(t.instrument, t.quantity, t.entry_price) for t in b.trades]
+
+
+def test_changed_target_replaces_one_still_waiting():
+    """Two decisions before the next open (daily bars, both after the close): the second set of
+    targets replaces the first, instead of both filling at 2x and leaving cash at -100%."""
+    days = pd.bdate_range("2024-03-04", periods=6)
+    c = np.full(6, 100.0)
+
+    def frame():
+        return daily_frame(pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1.0}, index=days),
+                           NASDAQ)
+
+    data = MarketData("xnas", daily={"xnas:AAA": frame(), "xnas:BBB": frame()})
+
+    class Rotate:
+        settings = {}
+
+        def decide(self, view, p):
+            if not view.universe():
+                return None
+            late = view.as_of.astimezone(NY).strftime("%H:%M") == "17:00"
+            return {"xnas:BBB": 1.0} if late else {"xnas:AAA": 1.0}
+
+    rec = run(Rotate(), data, decide_at=["16:30", "17:00"], costs={"stress": 0})
+    assert {f.instrument for f in rec.fills} == {"xnas:BBB"}
+    assert all(s.cash >= 0 for s in rec.states)
+    assert rec.states[-1].quantity("xnas:BBB") == 1000 and not rec.states[-1].quantity("xnas:AAA")

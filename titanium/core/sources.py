@@ -321,15 +321,34 @@ class FileImport(Source):
     @staticmethod
     def _times(index, tz: str) -> tuple[pd.DatetimeIndex, bool]:
         """Parsed timestamps in UTC, and whether they were dates only."""
-        if isinstance(index, pd.DatetimeIndex):
-            idx = index
-        else:
-            sample = pd.Index(index).astype(str)
-            idx = pd.DatetimeIndex(pd.to_datetime(sample, utc=False, format="mixed"))
+        idx = FileImport._parse(index)
         date_only = bool(len(idx)) and idx.tz is None and bool((idx == idx.normalize()).all())
         if idx.tz is None:
             idx = idx.tz_localize(tz, ambiguous="NaT", nonexistent="shift_forward")
         return idx.tz_convert("UTC"), date_only
+
+    @staticmethod
+    def _parse(index) -> pd.DatetimeIndex:
+        if isinstance(index, pd.DatetimeIndex):
+            return index
+        sample = pd.Index(index).astype(str)
+        return pd.DatetimeIndex(pd.to_datetime(sample, utc=False, format="mixed"))
+
+    @staticmethod
+    def _days(index) -> pd.DatetimeIndex | None:
+        """The calendar dates of date-stamped rows, exactly as written: dates only, or every stamp at
+        midnight in its own time zone (``2024-03-04T00:00Z``). ``None`` if the stamps carry times of day.
+        A date names a session; moving it to another time zone would move it to the day before."""
+        idx = FileImport._parse(index)
+        if not len(idx):
+            return None
+        if idx.tz is None and bool((idx == idx.normalize()).all()):
+            return idx.normalize()
+        if idx.tz is not None:
+            naive = idx.tz_localize(None)
+            if bool((naive == naive.normalize()).all()):
+                return naive.normalize()
+        return None
 
     def load(self, spec: SourceSpec) -> MarketData:
         p = self.resolve(spec)
@@ -348,16 +367,18 @@ class FileImport(Source):
                 key = f"{mk.id}:{sym}"
                 idx, date_only = self._times(df.index, tz)
                 step = pd.Series(idx).diff().median() if len(idx) > 1 else pd.Timedelta(days=1)
-                if date_only or step >= pd.Timedelta(hours=12):
-                    local = idx.tz_convert(mk.tz).tz_localize(None).normalize()
+                days = self._days(df.index)
+                if days is not None or step >= pd.Timedelta(hours=12):
+                    local = days if days is not None else idx.tz_convert(mk.tz).tz_localize(None).normalize()
                     daily[key] = daily_frame(df.set_axis(local), mk)
                 else:
                     minute[key] = check_minutes(df.set_axis(idx), path.name)
                 specs[key] = Instrument(sym, InstrumentKind.STOCK, mk.id)
             else:
                 idx, date_only = self._times(df.index, tz)
-                if date_only:  # known at that day's close, never earlier
-                    local_days = idx.tz_convert(mk.tz).date
+                days = self._days(df.index)
+                if days is not None:  # known at that day's close, never earlier
+                    local_days = [d.date() for d in days]
                     idx = pd.DatetimeIndex([mk.calendar.session_close(d) if mk.calendar.is_trading_day(d)
                                             else datetime.combine(d, mk.session().end, mk.tz)
                                             for d in local_days]).tz_convert("UTC")
