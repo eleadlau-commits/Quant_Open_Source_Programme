@@ -11,7 +11,8 @@ Each step at decision time ``t``:
 4. the strategy gets a guarded view pinned to ``t`` and that state, and decides;
 5. the decision becomes orders. Target weights are sized from what is known at ``t``:
    the latest visible close and the equity marked with it, in whole lots, sells before
-   buys, buys limited to the cash there is (no leverage beyond ``max_gross``). They fill
+   buys, buys limited to the cash there is (no leverage beyond ``max_gross``). New targets
+   replace the last ones: their orders still waiting to fill are cancelled first. They fill
    at the next bar's open; if that gaps up, cash may dip slightly below zero, which is
    allowed and logged.
 
@@ -247,6 +248,11 @@ class SimEngine:
                 raise ValueError(f"target weight for {key} is not a number")
             if w and check(key):
                 targets[key] = w
+        # new targets replace the last ones: their orders still waiting to fill are cancelled, so a
+        # repeated target never buys twice and a dropped name's pending buy doesn't go through
+        for o in broker.open_orders():
+            if o.tag == "rebalance" and o.type is OrderType.MARKET:
+                broker.cancel(o.id)
         gross = sum(abs(w) for w in targets.values())
         if gross > max_gross + 1e-12:
             targets = {k: w * max_gross / gross for k, w in targets.items()}

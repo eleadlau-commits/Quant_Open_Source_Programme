@@ -3,7 +3,9 @@
 Fill rules (ported from the prototype's ``honestbt.engine``):
 
 * A market order decided at ``t`` fills at the open of the first bar starting at or
-  after ``t``: the next bar, never the one the decision already saw.
+  after ``t``: the next bar, never the one the decision already saw. The fill is known
+  (and booked) once that bar has opened, so with daily bars it is in the portfolio by the
+  next day's decision.
 * Limit and stop orders are checked bar by bar. A bar that opens through the level
   fills at its open (worse for stops, better for limits); otherwise at the level.
 * Bracket exits (see :func:`titanium.core.orders.bracket`) start working once their
@@ -212,7 +214,8 @@ class SimBroker:
         return self._positions.get(key, 0.0)
 
     def fills(self, until: datetime) -> list[Fill]:
-        """Work every open order through the bars that have ended by ``until``."""
+        """Work every open order through the bars known by ``until``: market orders through the
+        bars that have opened, limits and stops through the bars that have ended."""
         until_ns = _ns(until)
         out: list[Fill] = []
         for key in sorted({w.order.instrument for w in self._working.values()}):
@@ -238,6 +241,10 @@ class SimBroker:
         o = w.order
         i0 = int(np.searchsorted(b.start, w.active_from, "left"))
         i1 = int(np.searchsorted(b.end, until_ns, "right"))
+        if o.type is OrderType.MARKET:
+            # a market order fills at a bar's open, which is known once the bar has opened: with
+            # daily bars the morning's fill is booked before that afternoon's decision
+            i1 = int(np.searchsorted(b.start, until_ns, "right"))
         if o.expires is not None:
             i1 = min(i1, int(np.searchsorted(b.start, _ns(o.expires), "left")))
         if i0 >= i1:
