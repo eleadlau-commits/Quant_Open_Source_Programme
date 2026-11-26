@@ -11,13 +11,16 @@ record = SimEngine(workspace.datasets).run(graph, dataset_id, {"capital": 50_000
 
 ## Each step, at decision time t
 
-1. The broker works open orders through the bars that ended by `t`; fills go to the ledger.
+1. The broker works open orders through the bars known by `t`; fills go to the ledger. A market
+   order's fill is known once its bar has opened, so with daily bars the morning's fill is in
+   the portfolio by that afternoon's decision. Limits and stops wait for the bar to end.
 2. Names that missed a whole session (known delisted) are closed at their last price, flagged.
 3. Positions are marked at the latest visible closes; the portfolio state is recorded.
 4. The strategy sees a guarded view pinned to `t` and that state, and decides.
 5. The decision becomes orders. Target weights are sized from what is known at `t`: the
    latest visible close and the equity marked with it, in whole lots, sells first, buys
-   limited to the cash there is at those prices. The orders fill at the next bar's open.
+   limited to the cash there is at those prices. Market orders still waiting to fill count as
+   done, so repeating a target never buys twice. The orders fill at the next bar's open.
 
 Because the fill price can differ from the sizing price (an overnight gap), a stock buy can
 cost a little more than the cash there was. The simulator lets cash go slightly negative
