@@ -19,11 +19,9 @@ record = SimEngine(workspace.datasets).run(graph, dataset_id, {"capital": 50_000
 4. The strategy sees a guarded view pinned to `t` and that state, and decides.
 5. The decision becomes orders. Target weights are sized from what is known at `t`: the
    latest visible close and the equity marked with it, in whole lots, sells first, buys
-   limited to the cash there is at those prices. New targets replace the last ones: rebalance
-   orders still waiting for a bar are cancelled and worked out again, so repeating a target
-   never buys twice and a changed target never fills on top of the old one. Market orders the
-   strategy sent itself and that are still waiting count as done. The orders fill at the next
-   bar's open.
+   limited to the cash there is at those prices. New targets replace the last ones: their
+   orders still waiting to fill are cancelled first, so repeating a target never buys twice.
+   The orders fill at the next bar's open.
 
 Because the fill price can differ from the sizing price (an overnight gap), a stock buy can
 cost a little more than the cash there was. The simulator lets cash go slightly negative

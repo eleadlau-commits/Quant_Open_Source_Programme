@@ -32,8 +32,17 @@ The latest build of `main` is on the
   installed Python 3.11+.
 - `Titanium.exe`: one portable file, no install.
 
-Windows may warn about an unknown publisher: click More info, then Run anyway. Your
+Windows may warn about an unknown publisher: click More info, then Run anyway. If Smart App
+Control blocks it, see [Windows warnings](docs/manual.md#windows-warnings) in the manual. Your
 datasets, plugins, skins and module library live in `Documents/Titanium`.
+
+## Documentation
+
+- [User manual](docs/manual.md): every page, page by page, for people using the app.
+- Developer notes in [`docs/`](docs/): [engine](docs/engine.md), [plugins](docs/plugins.md),
+  [backtests](docs/backtests.md), [measurements](docs/measurements.md),
+  [strategies](docs/strategies.md), [patch bay](docs/patch-bay.md),
+  [strategy code](docs/strategy-code.md), [design language](docs/design-language.md).
 
 ## Run it
 

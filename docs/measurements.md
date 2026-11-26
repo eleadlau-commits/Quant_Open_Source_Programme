@@ -47,4 +47,5 @@ Pressing Run again cancels. Every module that is not the decide module is record
   measurement in a panel below or over the chart on its own scale.
 - Knobs: turning one in the Knobs dock re-runs after 350 ms and redraws.
 - The Trade log dock lists the trades of the last run of the strategy in front.
-- The backtest buttons are placeholders for Phase 2F (`RunView.backtest_buttons`).
+- The backtest block runs four quick tests on the last run and shows their verdicts (see
+  [backtests.md](backtests.md)).
