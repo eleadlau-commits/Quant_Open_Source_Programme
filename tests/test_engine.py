@@ -631,3 +631,24 @@ def test_half_day_does_not_decide_twice_at_once():
     times = list(c.times())
     assert len(times) == len(set(times))
     assert [t.astimezone(NY).time() for t in times if t.astimezone(NY).date() == date(2024, 11, 29)] == [time(12, 50)]
+
+
+
+
+def test_a_run_keeps_the_knobs_it_started_with():
+    """Knobs used to be read from the live strategy at every step, so turning one mid-run changed the rest
+    of the run while the record kept the starting values."""
+    from titanium.core.module_library import momentum_rotation
+
+    data = SyntheticStocks().load(SyntheticStocks().spec(n_symbols=5, n_days=40, seed=7))
+    engine = SimEngine(MemoryData({"d": data}))
+    g = momentum_rotation()
+    g.knob_values["m2.days"] = 10
+    calm = engine.run(g, "d")
+
+    def turn(fraction):
+        if fraction > 0.5:
+            g.knob_values["m2.days"] = 3  # the person turns the knob while the run goes on
+
+    turned = engine.run(g, "d", progress=turn)
+    assert [s.equity for s in turned.states] == [s.equity for s in calm.states]
