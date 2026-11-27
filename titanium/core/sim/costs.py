@@ -6,6 +6,8 @@ trade log shows both the print and what it cost:
 * **stocks**: half the spread plus slippage, in basis points of the price, per share.
   The spread is wider in the first minutes after the regular open, and never less than
   a minimum per share (half a cent by default). An optional commission per share.
+  Fills on daily bars are timed at the open only because that is the one price a daily
+  bar gives; they pay the normal spread (``at=None``).
 * **futures**: slippage in ticks (market and stop orders; resting limits fill at their
   price by default) plus a commission per contract per side, in currency, using the
   contract's tick size and multiplier.
@@ -77,17 +79,19 @@ class CostModel:
             raise ValueError(f"unknown cost settings: {', '.join(sorted(costs))}")
         return out
 
-    def cost(self, instrument: Instrument, market: Market, price: float, quantity: float, at: datetime,
+    def cost(self, instrument: Instrument, market: Market, price: float, quantity: float, at: datetime | None,
              how: str = "market") -> float:
         """Cost in account currency of filling ``quantity`` at ``price`` at ``at``.
 
-        ``how`` is market, stop or limit (futures slippage depends on it).
+        ``how`` is market, stop or limit (futures slippage depends on it). ``at=None``: no
+        particular time of day (a daily bar's fill), so no wider spread after the open.
         """
         quantity = abs(quantity)
         if instrument.kind is InstrumentKind.FUTURE:
             each = self.futures.per_contract(how, instrument.tick_size, instrument.multiplier)
         else:
-            each = self.equity.per_share(price, _minutes_after_open(market, at)) * instrument.multiplier
+            after = _minutes_after_open(market, at) if at is not None else None
+            each = self.equity.per_share(price, after) * instrument.multiplier
         return each * quantity * self.stress
 
 

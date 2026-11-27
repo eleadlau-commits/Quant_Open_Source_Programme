@@ -354,3 +354,20 @@ def test_file_import_keeps_dates_of_utc_stamped_daily_bars(tmp_path):
         md = src.load(src.spec(paths=str(news / "mood.csv"), kind="complementary", timezone=tz))
         known = md.series("mood").index.tz_convert(NASDAQ.tz)
         assert [t.date() for t in known] == want and all(t.hour == 16 for t in known), tz
+
+
+
+def test_file_import_keeps_the_hour_the_clocks_go_back(tmp_path):
+    """A futures file in local time repeats 01:00-01:59 when the clocks go back. Both passes used to
+    collapse into one row with no time."""
+    first = pd.date_range("2024-11-03 00:30", "2024-11-03 01:59", freq="1min")
+    second = pd.date_range("2024-11-03 01:00", "2024-11-03 02:30", freq="1min")
+    stamps = list(first.strftime("%Y-%m-%d %H:%M")) + list(second.strftime("%Y-%m-%d %H:%M"))
+    px = np.arange(len(stamps)) + 1.0
+    pd.DataFrame({"time": stamps, "open": px, "high": px, "low": px, "close": px, "volume": 1}).to_csv(
+        tmp_path / "ES.csv", index=False)
+    src = FileImport()
+    md = src.load(src.spec(paths=str(tmp_path / "ES.csv"), market="cme"))
+    m = md.minute("cme:ES")
+    assert len(m) == len(stamps) and not m.index.isna().any()
+    assert m.index.is_monotonic_increasing and (m.index.to_series().diff().dropna() == pd.Timedelta("1min")).all()

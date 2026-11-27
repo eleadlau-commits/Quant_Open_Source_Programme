@@ -307,7 +307,8 @@ class SimBroker:
                 continue
             at = _dt(b.start[idx])
             how = {"market": "market", "limit": "limit", "target": "limit"}.get(reason, "stop")
-            cost = self.costs.cost(spec, self.market, price, qty, at, how)
+            # a daily bar's fill isn't really at the open minute: the normal spread applies
+            cost = self.costs.cost(spec, self.market, price, qty, at if self.data.has_minutes(key) else None, how)
             fill = Fill(o.id, key, at, o.side, qty, price, cost,
                         {"reason": reason, "tag": o.tag, "how": how, "decided": _dt(w.decided)})
             out.append(fill)

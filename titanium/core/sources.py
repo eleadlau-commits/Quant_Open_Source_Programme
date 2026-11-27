@@ -324,7 +324,10 @@ class FileImport(Source):
         idx = FileImport._parse(index)
         date_only = bool(len(idx)) and idx.tz is None and bool((idx == idx.normalize()).all())
         if idx.tz is None:
-            idx = idx.tz_localize(tz, ambiguous="NaT", nonexistent="shift_forward")
+            try:  # the hour the clocks go back appears twice: tell the two apart by the file's order
+                idx = idx.tz_localize(tz, ambiguous="infer", nonexistent="shift_forward")
+            except Exception:  # noqa: BLE001 - can't be told apart (e.g. not in time order)
+                idx = idx.tz_localize(tz, ambiguous="NaT", nonexistent="shift_forward")
         return idx.tz_convert("UTC"), date_only
 
     @staticmethod
@@ -372,7 +375,8 @@ class FileImport(Source):
                     local = days if days is not None else idx.tz_convert(mk.tz).tz_localize(None).normalize()
                     daily[key] = daily_frame(df.set_axis(local), mk)
                 else:
-                    minute[key] = check_minutes(df.set_axis(idx), path.name)
+                    ok = np.asarray(~idx.isna())  # rows whose clock time can't be placed are left out
+                    minute[key] = check_minutes(df[ok].set_axis(idx[ok]), path.name)
                 specs[key] = Instrument(sym, InstrumentKind.STOCK, mk.id)
             else:
                 idx, date_only = self._times(df.index, tz)
@@ -383,6 +387,7 @@ class FileImport(Source):
                                             else datetime.combine(d, mk.session().end, mk.tz)
                                             for d in local_days]).tz_convert("UTC")
                 df = df.set_axis(idx)
+                df = df[np.asarray(~df.index.isna())]
                 values = df.select_dtypes("number")
                 if "symbol" in df.columns and len(values.columns) == 1:  # long format: one row per symbol
                     keys = mk.id + ":" + df["symbol"].astype(str).str.upper()

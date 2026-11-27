@@ -135,7 +135,9 @@ class SimEngine:
         spans = [s for s in (data.span(k) for k in data.instruments) if s is not None]
         if not spans:
             raise ValueError("the dataset has no bars to trade")
-        clock = DecisionClock(data.market, min(s[0] for s in spans), max(s[1] for s in spans), cfg)
+        daily_only = not any(data.has_minutes(k) for k in data.instruments)
+        clock = DecisionClock(data.market, min(s[0] for s in spans), max(s[1] for s in spans), cfg,
+                              daily_only=daily_only)
         times = list(clock.times())
         strat = _compile(strategy)
         probes = list(cfg.get("probes") or [])
@@ -145,6 +147,10 @@ class SimEngine:
         ledger = SimLedger(capital, broker.spec)
         rec.log(times[0] if times else None,
                 f"start: {len(times)} decisions, capital {capital:,.0f} {data.market.currency}")
+        if clock.moved_to_close:
+            rec.log(times[0] if times else None,
+                    f"daily bars only: decisions at {', '.join(clock.moved_to_close)} are made at the close "
+                    "instead, once the day's bar is known")
 
         overdrawn = False
         for n, t in enumerate(times):
@@ -230,9 +236,12 @@ class SimEngine:
             if key in universe or ledger.quantity(key):
                 return True
             span = data.span(key) if key in data.instruments else None
-            if span is None or span[0] >= view.today:
-                raise LookAheadError(f"{key} is not listed at {t:%Y-%m-%d %H:%M} UTC: the strategy can't know it yet")
-            rec.log(t, f"ignored an order for {key}: it no longer trades")
+            if span is None:
+                raise LookAheadError(f"{key} is not in the data at {t:%Y-%m-%d %H:%M} UTC")
+            if span[0] >= view.today:
+                rec.log(t, f"ignored an order for {key}: it doesn't trade yet (first session {span[0]})")
+            else:
+                rec.log(t, f"ignored an order for {key}: it no longer trades")
             return False
 
         for oid in decision.cancel:
