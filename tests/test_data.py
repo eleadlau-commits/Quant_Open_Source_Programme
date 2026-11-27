@@ -328,3 +328,29 @@ def test_half_made_datasets_are_swept_and_locked_files_never_keep_one(tmp_path, 
     monkeypatch.undo()
     third = Workspace(data_root=tmp_path)
     assert not len(third.datasets) and third.datasets.leftovers  # and the next start deletes its files
+
+
+def test_file_import_keeps_dates_of_utc_stamped_daily_bars(tmp_path):
+    """A date names a session. Daily bars stamped at midnight UTC (or read with the time zone set to
+    UTC) used to land on the day before: Monday's prices on a Sunday, and each day's close visible a
+    day early."""
+    days = pd.bdate_range("2024-03-04", periods=5)
+    px = np.arange(5) * 1.0 + 100
+    rows = {"open": px, "high": px + 0.5, "low": px - 0.5, "close": px, "volume": 1}
+    pd.DataFrame({"date": days.strftime("%Y-%m-%d"), **rows}).to_csv(tmp_path / "AAA.csv", index=False)
+    pd.DataFrame({"date": days.tz_localize("UTC").strftime("%Y-%m-%dT%H:%M:%S%z"), **rows}).to_csv(
+        tmp_path / "BBB.csv", index=False)
+    news = tmp_path / "news"
+    news.mkdir()
+    pd.DataFrame({"date": days.strftime("%Y-%m-%d"), "value": px}).to_csv(news / "mood.csv", index=False)
+    src = FileImport()
+    want = [d.date() for d in days]
+    for tz in ("", "UTC"):
+        md = src.load(src.spec(paths=f"{tmp_path / 'AAA.csv'};{tmp_path / 'BBB.csv'}", timezone=tz))
+        for key in ("xnas:AAA", "xnas:BBB"):
+            d = md.daily(key)
+            assert [i.date() for i in d.index] == want, (tz, key)
+            assert list(d["close"]) == list(px)
+        md = src.load(src.spec(paths=str(news / "mood.csv"), kind="complementary", timezone=tz))
+        known = md.series("mood").index.tz_convert(NASDAQ.tz)
+        assert [t.date() for t in known] == want and all(t.hour == 16 for t in known), tz
