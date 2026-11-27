@@ -248,13 +248,24 @@ class SyntheticFutures(Source):
 TIME_COLUMNS = ("timestamp", "time", "datetime", "date", "ts", "start", "known")
 
 
+# markets whose files hold futures by default, and contracts known by their root: (multiplier, tick size)
+FUTURES_MARKETS = ("cme",)
+CONTRACTS: dict[str, tuple[float, float]] = {
+    "ES": (50.0, 0.25), "MES": (5.0, 0.25), "NQ": (20.0, 0.25), "MNQ": (2.0, 0.25),
+    "YM": (5.0, 1.0), "MYM": (0.5, 1.0), "RTY": (50.0, 0.1), "M2K": (5.0, 0.1),
+    "CL": (1000.0, 0.01), "MCL": (100.0, 0.01), "GC": (100.0, 0.1), "MGC": (10.0, 0.1),
+}
+
+
 class FileImport(Source):
     """Parquet or CSV files: price bars (core) or values known over time (complementary).
 
     One file per instrument (named after it, e.g. ``AAPL.csv``) or per series. Timestamps
     without a time zone are read in the market's local time. Bars are read as minute or
     daily bars from their spacing. Date-only complementary values count as known at that
-    day's close, so they cannot leak into the same day's decisions.
+    day's close, so they cannot leak into the same day's decisions. On a futures market
+    (CME) price files are futures, with the contract size and tick known from the symbol's
+    root (``ESZ4`` is ES) or given.
     """
 
     order = 30
@@ -269,6 +280,13 @@ class FileImport(Source):
         Param("market", "choice", "xnas", "Market", "Calendar and time zone.", choices=tuple(MARKETS)),
         Param("timezone", "str", "", "Time zone of naive timestamps", "Empty means the market's time zone."),
         Param("name", "str", "", "Dataset name", "Empty means the file or folder name."),
+        Param("instrument", "choice", "auto", "Instruments",
+              "auto: futures on a futures market (CME), stocks elsewhere.", choices=("auto", "stock", "future")),
+        Param("multiplier", "float", 0.0, "Contract size",
+              "Futures: value of one point per contract (ES 50, MNQ 2). 0 means look it up from the symbol.",
+              minimum=0.0),
+        Param("tick_size", "float", 0.0, "Tick size", "Futures: smallest price step. 0 means look it up.",
+              minimum=0.0),
     ]
 
     @staticmethod
@@ -324,7 +342,10 @@ class FileImport(Source):
         idx = FileImport._parse(index)
         date_only = bool(len(idx)) and idx.tz is None and bool((idx == idx.normalize()).all())
         if idx.tz is None:
-            idx = idx.tz_localize(tz, ambiguous="NaT", nonexistent="shift_forward")
+            try:  # the hour the clocks go back appears twice: tell the two apart by the file's order
+                idx = idx.tz_localize(tz, ambiguous="infer", nonexistent="shift_forward")
+            except Exception:  # noqa: BLE001 - can't be told apart (e.g. not in time order)
+                idx = idx.tz_localize(tz, ambiguous="NaT", nonexistent="shift_forward")
         return idx.tz_convert("UTC"), date_only
 
     @staticmethod
@@ -350,6 +371,22 @@ class FileImport(Source):
                 return naive.normalize()
         return None
 
+    @staticmethod
+    def _instrument(sym: str, mk, p: dict[str, Any]) -> Instrument:
+        """A stock, or a future with its contract size and tick (given, or known from the symbol's root:
+        ``ESZ4`` and ``ES_continuous`` are both ES)."""
+        kind = p.get("instrument") or "auto"
+        future = kind == "future" or (kind == "auto" and mk.id in FUTURES_MARKETS)
+        if not future:
+            return Instrument(sym, InstrumentKind.STOCK, mk.id)
+        root = next((r for r in sorted(CONTRACTS, key=len, reverse=True) if sym.startswith(r)), None)
+        known = CONTRACTS.get(root, (0.0, 0.0))
+        mult = float(p.get("multiplier") or 0) or known[0]
+        tick = float(p.get("tick_size") or 0) or known[1]
+        if not mult or not tick:
+            raise ValueError(f"{sym}: unknown futures contract. Give its contract size and tick size.")
+        return Instrument(sym, InstrumentKind.FUTURE, mk.id, tick_size=tick, multiplier=mult)
+
     def load(self, spec: SourceSpec) -> MarketData:
         p = self.resolve(spec)
         mk = MARKETS[p["market"]]
@@ -372,8 +409,9 @@ class FileImport(Source):
                     local = days if days is not None else idx.tz_convert(mk.tz).tz_localize(None).normalize()
                     daily[key] = daily_frame(df.set_axis(local), mk)
                 else:
-                    minute[key] = check_minutes(df.set_axis(idx), path.name)
-                specs[key] = Instrument(sym, InstrumentKind.STOCK, mk.id)
+                    ok = np.asarray(~idx.isna())  # rows whose clock time can't be placed are left out
+                    minute[key] = check_minutes(df[ok].set_axis(idx[ok]), path.name)
+                specs[key] = self._instrument(sym, mk, p)
             else:
                 idx, date_only = self._times(df.index, tz)
                 days = self._days(df.index)
@@ -383,6 +421,7 @@ class FileImport(Source):
                                             else datetime.combine(d, mk.session().end, mk.tz)
                                             for d in local_days]).tz_convert("UTC")
                 df = df.set_axis(idx)
+                df = df[np.asarray(~df.index.isna())]
                 values = df.select_dtypes("number")
                 if "symbol" in df.columns and len(values.columns) == 1:  # long format: one row per symbol
                     keys = mk.id + ":" + df["symbol"].astype(str).str.upper()

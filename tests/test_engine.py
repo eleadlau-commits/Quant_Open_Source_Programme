@@ -343,12 +343,22 @@ def test_look_ahead_attempt_raises():
     assert ei.value.record.status == "failed" and "LookAheadError" in ei.value.record.error
 
 
-def test_trading_a_name_before_it_lists_raises():
+def test_trading_a_name_before_it_lists_is_skipped_and_logged():
+    """A strategy that names a ticker directly (hold AAA) used to fail the whole run on the data's first
+    day, when nothing is listed yet. The order is skipped and logged instead."""
     data = MarketData("xnas", {"xnas:AAA": pd.concat([day_bars(d) for d in DAYS]),
                                "xnas:NEW": pd.concat([day_bars(d) for d in DAYS[3:]])})
-    strat = Fixed({(1, "10:00"): {"xnas:NEW": 0.5}}, {"decide_at": "10:00"})
+    strat = Fixed({(1, "10:00"): {"xnas:NEW": 0.5}, (0, "10:00"): {"xnas:AAA": 0.5}}, {"decide_at": "10:00"})
+    rec = run(strat, data)
+    assert rec.status == "done" and not rec.fills
+    assert any("xnas:NEW: it doesn't trade yet" in line for line in rec.log)
+    assert any("xnas:AAA: it doesn't trade yet" in line for line in rec.log)
+
+
+def test_trading_a_name_not_in_the_data_still_fails():
+    strat = Fixed({(1, "10:00"): {"xnas:ZZZ": 0.5}}, {"decide_at": "10:00"})
     with pytest.raises(RunFailed) as ei:
-        run(strat, data)
+        run(strat, stock_data())
     assert isinstance(ei.value.__cause__, LookAheadError)
 
 
@@ -575,3 +585,70 @@ def test_engine_reruns_give_the_same_record_as_a_fresh_run():
     assert [s.equity for s in a.states] == [s.equity for s in b.states]
     assert [(t.instrument, t.quantity, t.entry_price) for t in a.trades] == \
            [(t.instrument, t.quantity, t.entry_price) for t in b.trades]
+
+
+
+def _daily_data(n: int = 6, keys=("xnas:AAA",)) -> MarketData:
+    days = pd.bdate_range("2024-03-04", periods=n)
+    px = np.arange(n) * 1.0 + 100
+    frame = pd.DataFrame({"open": px, "high": px + 0.5, "low": px - 0.5, "close": px, "volume": 1.0}, index=days)
+    return MarketData("xnas", daily={k: daily_frame(frame, NASDAQ) for k in keys})
+
+
+def test_daily_only_data_decides_at_the_close():
+    """At 15:50 the day's bar isn't known: the decision used the day before's close and traded a day
+    late. With daily bars only, decisions inside the session move to the close."""
+    seen = []
+
+    class Hold:
+        settings = {}
+
+        def decide(self, view, p):
+            bars = view.daily("xnas:AAA")
+            seen.append((view.as_of.astimezone(NY), bars.index[-1].date() if len(bars) else None))
+            return {k: 1.0 for k in view.universe()}
+
+    rec = run(Hold(), _daily_data())  # the market's default decision time, 15:50
+    assert all(t.time() == time(16, 0) and last == t.date() for t, last in seen)
+    first = rec.fills[0]
+    assert first.time.astimezone(NY) == ny(date(2024, 3, 6), "09:30")  # decided Tue at the close
+    assert any("made at the close" in line for line in rec.log)
+    # a time before the open is kept: it already sees the day before's close
+    c = DecisionClock(NASDAQ, date(2024, 3, 4), date(2024, 3, 8), {"decide_at": ["09:00", "15:50"]}, daily_only=True)
+    assert sorted({t.astimezone(NY).time() for t in c.times()}) == [time(9, 0), time(16, 0)]
+
+
+def test_daily_fills_pay_the_normal_spread():
+    """Daily fills are stamped at the open only because that's the price a daily bar gives; they used to
+    pay the opening spread (3x) every time."""
+    rec = run(Fixed({(1, "16:30"): {"xnas:AAA": 1.0}}, {"decide_at": "16:30"}), _daily_data(5))
+    f = rec.fills[0]
+    assert f.cost / (f.quantity * f.price) * 1e4 == pytest.approx(8.0)  # 5 bps half spread + 3 bps slippage
+
+
+def test_half_day_does_not_decide_twice_at_once():
+    c = DecisionClock(NASDAQ, date(2024, 11, 25), date(2024, 12, 2), {"decide_at": ["12:50", "15:50"]})
+    times = list(c.times())
+    assert len(times) == len(set(times))
+    assert [t.astimezone(NY).time() for t in times if t.astimezone(NY).date() == date(2024, 11, 29)] == [time(12, 50)]
+
+
+
+
+def test_a_run_keeps_the_knobs_it_started_with():
+    """Knobs used to be read from the live strategy at every step, so turning one mid-run changed the rest
+    of the run while the record kept the starting values."""
+    from titanium.core.module_library import momentum_rotation
+
+    data = SyntheticStocks().load(SyntheticStocks().spec(n_symbols=5, n_days=40, seed=7))
+    engine = SimEngine(MemoryData({"d": data}))
+    g = momentum_rotation()
+    g.knob_values["m2.days"] = 10
+    calm = engine.run(g, "d")
+
+    def turn(fraction):
+        if fraction > 0.5:
+            g.knob_values["m2.days"] = 3  # the person turns the knob while the run goes on
+
+    turned = engine.run(g, "d", progress=turn)
+    assert [s.equity for s in turned.states] == [s.equity for s in calm.states]

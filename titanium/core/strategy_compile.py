@@ -86,6 +86,8 @@ class GraphStrategy:
 
     def __init__(self, graph: StrategyGraph):
         self.graph = graph
+        # the knobs are read once, here: a knob turned while a run goes on doesn't reach it
+        self.knob_values = dict(graph.knob_values)
         self.entry = entry_module(graph)
         order = _order(graph)
         needed = self._upstream(self.entry)
@@ -126,7 +128,7 @@ class GraphStrategy:
 
     def run_modules(self, view: GuardedView, portfolio: PortfolioState | None) -> dict[str, dict[str, Any]]:
         """Run the modules once; each module's outputs, by port name."""
-        values = dict(self.graph.knob_values)
+        values = self.knob_values
         outputs: dict[str, dict[str, Any]] = {}
         for mid in self.order:
             m = self.graph.module(mid)

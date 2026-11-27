@@ -35,12 +35,14 @@ step where it happens.
 - Brackets (`orders.bracket(...)`): exits work once the entry fills, cancel each other, are
   reduce-only, and if one bar touches both the stop is taken.
 - Stocks trade in the regular session unless `extended_hours`; futures in every session.
+- An order for a name that doesn't trade yet, or no longer trades, is skipped and logged. A
+  name that isn't in the data at all fails the run.
 
 ## Settings
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `decide_at` | `"15:50"` | Exchange time, or a list of times |
+| `decide_at` | `"15:50"` | Exchange time, or a list of times. With daily bars only, a time inside the session moves to the close (the day's bar is known only then) |
 | `every` | `"day"` | `day`, `week` or `month` |
 | `start`, `end` | data span | `YYYY-MM-DD` |
 | `capital` | 100,000 | Notional capital in account currency |
@@ -52,7 +54,8 @@ step where it happens.
 | `probes` | | Module ids (or `module.port`) whose outputs are recorded each step |
 
 Stock costs: half-spread 5 bps (3x in the first 5 minutes after the open, at least half a cent
-a share) plus 3 bps slippage. Futures: 1 tick slippage on market and stop orders, none on
+a share) plus 3 bps slippage. Fills on daily bars pay the normal spread: they sit at the open
+only because that is the one price a daily bar gives. Futures: 1 tick slippage on market and stop orders, none on
 limits, plus 0.85 commission per contract per side.
 
 ## The record
