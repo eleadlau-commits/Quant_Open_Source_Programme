@@ -371,3 +371,25 @@ def test_file_import_keeps_the_hour_the_clocks_go_back(tmp_path):
     m = md.minute("cme:ES")
     assert len(m) == len(stamps) and not m.index.isna().any()
     assert m.index.is_monotonic_increasing and (m.index.to_series().diff().dropna() == pd.Timedelta("1min")).all()
+
+
+
+def test_file_import_reads_futures_on_a_futures_market(tmp_path):
+    """Futures files imported into CME used to become stocks: cash paid the whole contract value, no
+    contract size, and only the regular stock session traded."""
+    idx = pd.date_range("2024-03-04 08:30", periods=30, freq="1min")
+    px = np.arange(30) + 5000.0
+    rows = {"time": idx.strftime("%Y-%m-%d %H:%M"), "open": px, "high": px, "low": px, "close": px, "volume": 1}
+    for name in ("ESZ4", "MNQ", "XYZ"):
+        pd.DataFrame(rows).to_csv(tmp_path / f"{name}.csv", index=False)
+    src = FileImport()
+    md = src.load(src.spec(paths=f"{tmp_path / 'ESZ4.csv'};{tmp_path / 'MNQ.csv'}", market="cme"))
+    es, mnq = md.instrument_specs["cme:ESZ4"], md.instrument_specs["cme:MNQ"]
+    assert es.kind.value == "future" and (es.multiplier, es.tick_size) == (50.0, 0.25)
+    assert mnq.multiplier == 2.0
+    with pytest.raises(ValueError, match="unknown futures contract"):
+        src.load(src.spec(paths=str(tmp_path / "XYZ.csv"), market="cme"))
+    xyz = src.load(src.spec(paths=str(tmp_path / "XYZ.csv"), market="cme", multiplier=10.0, tick_size=0.5))
+    assert xyz.instrument_specs["cme:XYZ"].multiplier == 10.0
+    stock = src.load(src.spec(paths=str(tmp_path / "XYZ.csv"), market="xnas"))
+    assert stock.instrument_specs["xnas:XYZ"].kind.value == "stock"
